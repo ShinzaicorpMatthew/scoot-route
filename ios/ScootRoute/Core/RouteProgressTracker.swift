@@ -18,6 +18,13 @@ struct RouteProgressTracker {
         var hasArrived: Bool = false
         /// Segment à risque (chantier / accès incertain) dans les 250 m à venir
         var hazardAhead: RouteSegment? = nil
+        /// Segment du tracé où se trouve le livreur et position « aimantée » sur le tracé
+        /// (affichage de la flèche façon GPS, partie déjà parcourue en gris)
+        var segmentIndex: Int = 0
+        var snappedLatitude: Double? = nil
+        var snappedLongitude: Double? = nil
+        /// Cap du tracé à la position actuelle (degrés, 0 = nord)
+        var routeBearing: Double = 0
     }
 
     let route: PlannedRoute
@@ -45,6 +52,7 @@ struct RouteProgressTracker {
         state.remainingAscent = route.ascentM
         state.nextInstructionIndex = min(1, max(0, route.instructions.count - 1))
         updateManeuver(distanceAlong: 0)
+        if coords.count >= 2 { state.routeBearing = GeoMath.bearing(coords[0], coords[1]) }
     }
 
     /// Met à jour la progression avec une nouvelle position GPS.
@@ -78,6 +86,14 @@ struct RouteProgressTracker {
                 lastSegment = p.segmentIndex
                 state.distanceAlong = max(state.distanceAlong, p.distanceAlong)
             }
+            let a = coords[p.segmentIndex], b = coords[p.segmentIndex + 1]
+            state.segmentIndex = p.segmentIndex
+            state.snappedLatitude = a.latitude + (b.latitude - a.latitude) * p.fraction
+            state.snappedLongitude = a.longitude + (b.longitude - a.longitude) * p.fraction
+            state.routeBearing = GeoMath.bearing(a, b)
+        } else {
+            state.snappedLatitude = nil
+            state.snappedLongitude = nil
         }
 
         let along = state.distanceAlong
