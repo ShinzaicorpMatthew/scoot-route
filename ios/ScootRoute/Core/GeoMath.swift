@@ -59,6 +59,14 @@ enum GeoMath {
         return best
     }
 
+    /// Point situé à `meters` mètres de `from` dans la direction `bearing` (degrés).
+    static func offset(_ from: CLLocationCoordinate2D, meters: Double, bearing: Double) -> CLLocationCoordinate2D {
+        let rad = bearing * .pi / 180
+        let dLat = meters * cos(rad) / 111_320
+        let dLon = meters * sin(rad) / (111_320 * cos(from.latitude * .pi / 180))
+        return CLLocationCoordinate2D(latitude: from.latitude + dLat, longitude: from.longitude + dLon)
+    }
+
     /// Cap (degrés, 0 = nord) entre deux points.
     static func bearing(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
         let la1 = a.latitude * .pi / 180, la2 = b.latitude * .pi / 180
