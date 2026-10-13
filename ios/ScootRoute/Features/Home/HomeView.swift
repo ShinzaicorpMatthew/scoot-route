@@ -133,12 +133,15 @@ struct RouteOverlay: MapContent {
 
     var body: some MapContent {
         let coords = route.coordinates
+        // Bordure blanche puis tracé bleu épais : la route reste lisible sur tous les fonds de carte
         MapPolyline(coordinates: coords)
-            .stroke(Theme.route, style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+            .stroke(.white, style: StrokeStyle(lineWidth: 13, lineCap: .round, lineJoin: .round))
+        MapPolyline(coordinates: coords)
+            .stroke(Theme.route, style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
         ForEach(Array(route.segments.enumerated()), id: \.offset) { _, seg in
             if seg.kind != .normal, seg.fromIndex < seg.toIndex, seg.toIndex < coords.count {
                 MapPolyline(coordinates: Array(coords[seg.fromIndex...seg.toIndex]))
-                    .stroke(Theme.color(for: seg.kind), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .stroke(Theme.color(for: seg.kind), style: StrokeStyle(lineWidth: 5, lineCap: .round))
             }
         }
     }
