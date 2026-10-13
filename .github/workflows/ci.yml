@@ -1,0 +1,62 @@
+# Compilation et tests dans le cloud — utile depuis Windows (pas de Xcode local).
+# Poussez le dépôt sur GitHub : chaque push lance les tests serveur, les tests iOS
+# sur simulateur, et produit un .ipa NON SIGNÉ téléchargeable (onglet Actions > Artifacts),
+# à signer/installer avec votre identifiant Apple (voir README, « Tester sur iPhone »).
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Outils
+        run: brew install xcodegen
+      - name: Configuration
+        env:
+          SCOOT_API_BASE_URL: ${{ vars.SCOOT_API_BASE_URL }}
+          SCOOT_CLIENT_TOKEN: ${{ vars.SCOOT_CLIENT_TOKEN }}
+        run: |
+          {
+            # "//" serait lu comme un commentaire dans un .xcconfig
+            [ -n "$SCOOT_API_BASE_URL" ] && echo "SCOOT_API_BASE_URL = ${SCOOT_API_BASE_URL/:\/\//:\/\$()\/}"
+            [ -n "$SCOOT_CLIENT_TOKEN" ] && echo "SCOOT_CLIENT_TOKEN = $SCOOT_CLIENT_TOKEN"
+            true
+          } > Config/Local.xcconfig
+          cat Config/Local.xcconfig
+          xcodegen generate
+      - name: Tests unitaires (simulateur)
+        run: |
+          SIM=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9A-Za-z ]+ \(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}')
+          echo "Simulateur : $SIM"
+          xcodebuild test -project ScootRoute.xcodeproj -scheme ScootRoute \
+            -destination "id=$SIM" CODE_SIGNING_ALLOWED=NO -quiet
+      - name: Build iPhone non signé (.ipa)
+        run: |
+          xcodebuild build -project ScootRoute.xcodeproj -scheme ScootRoute -configuration Release \
+            -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/ScootRoute.app Payload/
+          zip -qr ScootRoute-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScootRoute-unsigned-ipa
+          path: ios/ScootRoute-unsigned.ipa

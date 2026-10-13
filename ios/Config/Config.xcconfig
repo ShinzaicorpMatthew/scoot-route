@@ -1,0 +1,13 @@
+// Configuration Scoot Route — modifiez Local.xcconfig plutôt que ce fichier.
+//
+// ATTENTION : dans un .xcconfig, "//" démarre un commentaire. Écrivez les URL ainsi :
+//   SCOOT_API_BASE_URL = https:/$()/scoot.mondomaine.fr
+
+SCOOT_API_BASE_URL = http:/$()/localhost:8080
+SCOOT_CLIENT_TOKEN =
+PRODUCT_BUNDLE_IDENTIFIER = fr.scootroute.app
+DEVELOPMENT_TEAM =
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+#include? "Local.xcconfig"

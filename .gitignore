@@ -1,0 +1,14 @@
+# Serveur
+server/data/
+server/.env
+server/api/node_modules/
+
+# iOS
+ios/ScootRoute.xcodeproj/
+ios/Config/Local.xcconfig
+ios/build/
+ios/Payload/
+*.ipa
+DerivedData/
+xcuserdata/
+.DS_Store

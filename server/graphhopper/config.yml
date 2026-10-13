@@ -1,0 +1,83 @@
+# Configuration GraphHopper pour Scoot Route (Lyon et sa métropole)
+# Version cible : GraphHopper 11.x (Java 17+)
+#
+# Le graphe est construit à partir d'un extrait OpenStreetMap découpé sur la métropole
+# lyonnaise (voir ../scripts/prepare-osm.sh). L'altitude provient de SRTM (téléchargé
+# automatiquement à l'import). Elle sert à la pondération (pente moyenne/maximale par tronçon).
+# L'API Scoot Route affine ensuite le profil d'altitude affiché avec le RGE ALTI de l'IGN.
+
+graphhopper:
+  datareader.file: /data/lyon.osm.pbf
+  graph.location: /data/graph-cache
+
+  custom_models.directory: /gh/custom_models
+
+  # Un seul profil "scooter" : règles légales et d'accès des trottinettes (EDPM).
+  # Les préférences (rapide / éco / équilibré / réglages utilisateur) sont ajoutées
+  # à chaque requête par l'API sous forme de "custom_model" (mode flexible).
+  profiles:
+    - name: scooter
+      custom_model_files: [scooter.json]
+
+  # Pas de Contraction Hierarchies ni de Landmarks : le mode flexible est requis pour
+  # modifier librement le modèle de coût à chaque requête. Sur l'emprise de la métropole
+  # lyonnaise, le calcul reste rapide (quelques dizaines de ms par trajet urbain).
+  profiles_ch: []
+  profiles_lm: []
+
+  graph.encoded_values: |
+    bike_access, bike_average_speed, bike_priority, bike_road_access, bike_network,
+    road_class, road_class_link, road_environment, roundabout, surface, smoothness,
+    track_type, mtb_rating, get_off_bike, max_speed, average_slope, max_slope,
+    country, urban_density, ferry_speed
+
+  # Vitesses maximales légales par défaut lorsque le tag maxspeed est absent
+  # (nécessite country + urban_density). Utilisé pour repérer les routes > 50 km/h,
+  # où la trottinette n'est autorisée que sur piste ou bande cyclable.
+  max_speed_calculator.enabled: true
+  graph.urban_density.threads: 4
+
+  # Altitude
+  graph.elevation.provider: srtm
+  graph.elevation.cache_dir: /data/srtm
+  graph.elevation.dataaccess: RAM_STORE
+  graph.elevation.interpolate: bilinear
+  graph.elevation.long_edge_sampling_distance: 40
+  graph.elevation.way_point_max_distance: 5
+  graph.elevation.edge_smoothing: moving_average
+  graph.elevation.edge_smoothing.moving_average.window_size: 100
+
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.max_visited_nodes: 2000000
+  routing.timeout_ms: 10000
+  # Trajets de livraison : on refuse les points distants de plus de 60 km
+  routing.non_ch.max_waypoint_distance: 60000
+
+  import.osm.ignored_highways: motorway,trunk
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      # Exposé uniquement au réseau Docker interne (l'API est le seul client)
+      bind_host: 0.0.0.0
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: 0.0.0.0
+
+logging:
+  # Confidentialité : ne pas journaliser les coordonnées des requêtes de routage
+  loggers:
+    "com.graphhopper.resources": WARN
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

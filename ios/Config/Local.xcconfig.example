@@ -1,0 +1,11 @@
+// Copiez ce fichier en Local.xcconfig (ignoré par git) et renseignez vos valeurs.
+
+// Adresse publique HTTPS de votre serveur (tunnel Cloudflare, VPS…)
+SCOOT_API_BASE_URL = https:/$()/scoot.example.fr
+
+// Même valeur que CLIENT_TOKEN dans server/.env (laisser vide si non utilisé)
+SCOOT_CLIENT_TOKEN =
+
+// Identifiant d'équipe Apple (Xcode > Settings > Accounts) et identifiant unique de l'app
+DEVELOPMENT_TEAM = ABCDE12345
+PRODUCT_BUNDLE_IDENTIFIER = fr.votrenom.scootroute

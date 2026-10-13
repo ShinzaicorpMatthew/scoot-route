@@ -1,0 +1,47 @@
+# Compilation iOS + envoi sur TestFlight depuis le cloud (aucun Mac nécessaire).
+# Ce fichier doit rester à la racine du dépôt (Codemagic le cherche là) — voir README, option B.
+# Prérequis : compte Apple Developer (99 €/an), app créée dans App Store Connect,
+# clé API App Store Connect ajoutée dans Codemagic (Team settings > Integrations).
+workflows:
+  ios-testflight:
+    name: Scoot Route → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: ScootRouteASC          # nom donné à votre clé API dans Codemagic
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: fr.votrenom.scootroute   # identique à App Store Connect
+      vars:
+        BUNDLE_ID: fr.votrenom.scootroute
+        SCOOT_API_BASE_URL: https://scoot.example.fr   # adresse HTTPS de votre serveur
+        SCOOT_CLIENT_TOKEN: ""
+    scripts:
+      - name: Générer le projet Xcode
+        script: |
+          cd ios
+          brew install xcodegen
+          {
+            echo "SCOOT_API_BASE_URL = ${SCOOT_API_BASE_URL/:\/\//:\/\$()\/}"
+            echo "SCOOT_CLIENT_TOKEN = $SCOOT_CLIENT_TOKEN"
+            echo "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID"
+            echo "CURRENT_PROJECT_VERSION = $BUILD_NUMBER"
+          } > Config/Local.xcconfig
+          xcodegen generate
+      - name: Signature
+        script: xcode-project use-profiles --project ios/ScootRoute.xcodeproj
+      - name: Tests unitaires
+        script: |
+          cd ios
+          xcodebuild test -project ScootRoute.xcodeproj -scheme ScootRoute \
+            -destination "platform=iOS Simulator,name=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9]+( Pro)?' )" -quiet
+      - name: Construire l'IPA
+        script: xcode-project build-ipa --project ios/ScootRoute.xcodeproj --scheme ScootRoute
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

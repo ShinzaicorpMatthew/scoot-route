@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>CFBundleDisplayName</key>
+	<string>Scoot Route</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+		<string>location-services</string>
+		<string>gps</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Scoot Route utilise votre position pour définir le point de départ et vous guider pendant la livraison.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Scoot Route continue le guidage lorsque l'écran est verrouillé pendant une navigation en cours.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Accès au serveur Scoot Route de développement sur votre réseau local.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Autorise HTTP uniquement vers le réseau local (serveur de dev). La production doit être en HTTPS. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>scootroute</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>scootroute</string>
+			</array>
+		</dict>
+	</array>
+	<key>ScootAPIBaseURL</key>
+	<string>$(SCOOT_API_BASE_URL)</string>
+	<key>ScootClientToken</key>
+	<string>$(SCOOT_CLIENT_TOKEN)</string>
+</dict>
+</plist>

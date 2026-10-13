@@ -1,0 +1,33 @@
+services:
+  graphhopper:
+    build: ./graphhopper
+    volumes:
+      - ./data:/data
+    # Pas de port publié : seul le service "api" interroge GraphHopper.
+    # Décommentez pour déboguer avec l'interface web GraphHopper (http://localhost:8989/maps/)
+    # ports: ["127.0.0.1:8989:8989"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8989/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  api:
+    build: ./api
+    env_file: .env
+    environment:
+      GRAPHHOPPER_URL: http://graphhopper:8989
+      REPORTS_DB: /app/data/reports.sqlite
+    volumes:
+      - api-data:/app/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      graphhopper:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  api-data:
