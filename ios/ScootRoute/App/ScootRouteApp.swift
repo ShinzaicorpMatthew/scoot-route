@@ -60,6 +60,8 @@ enum Theme {
     static let difficulty = Color.orange          // pavés, non revêtu, fortes pentes
     static let restriction = Color.red            // accès incertain, chantiers
     static let alternative = Color.gray.opacity(0.55)
+    static let guidance = Color(red: 0.05, green: 0.46, blue: 0.29)      // bandeau de guidage (vert GPS)
+    static let guidanceDark = Color(red: 0.03, green: 0.35, blue: 0.22)
 
     static func color(for kind: RouteSegment.Kind) -> Color {
         switch kind {
