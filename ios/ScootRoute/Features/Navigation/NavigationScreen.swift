@@ -7,30 +7,78 @@ struct NavigationScreen: View {
     let engine: NavigationEngine
     @Environment(AppModel.self) private var model
     @Environment(\.modelContext) private var context
-    @State private var camera: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
+    @State private var camera: MapCameraPosition = .automatic
     @State private var showFinish = false
     @State private var showReport = false
+    /// Caméra qui suit le livreur (désactivée quand il déplace la carte à la main)
+    @State private var following = true
+    @State private var mapHeading: Double = 0
+    @State private var lastCameraTarget: CLLocationCoordinate2D?
 
     var body: some View {
         ZStack(alignment: .top) {
             Map(position: $camera) {
-                UserAnnotation()
                 RouteOverlay(route: engine.route)
+                if engine.traveledCoordinates.count >= 2 {
+                    MapPolyline(coordinates: engine.traveledCoordinates)
+                        .stroke(Color(white: 0.62), style: StrokeStyle(lineWidth: 9, lineCap: .round, lineJoin: .round))
+                }
+                if let turn = engine.nextManeuverCoordinate {
+                    Annotation("", coordinate: turn, anchor: .center) {
+                        Image(systemName: Maneuver.symbol(for: engine.nextInstruction?.sign ?? 0))
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Theme.guidance))
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
+                }
                 Marker(engine.destination.title, systemImage: "flag.checkered", coordinate: engine.destination.coordinate)
-                    .tint(Theme.route)
+                    .tint(Theme.restriction)
+                if let here = engine.displayCoordinate {
+                    Annotation("", coordinate: here, anchor: .center) {
+                        NavigationArrow(rotation: engine.displayHeading - mapHeading)
+                    }
+                }
             }
-            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
-            .mapControls { MapCompass(); MapUserLocationButton() }
+            .mapStyle(.standard(elevation: .realistic, emphasis: .muted, pointsOfInterest: .excludingAll))
+            .mapControls { MapCompass(); MapScaleView() }
+            .onMapCameraChange(frequency: .continuous) { ctx in
+                mapHeading = ctx.camera.heading
+            }
+            .onMapCameraChange(frequency: .onEnd) { ctx in
+                // L'utilisateur a déplacé la carte : on arrête de le suivre jusqu'à « Recentrer »
+                if following, let target = lastCameraTarget,
+                   GeoMath.distance(ctx.camera.centerCoordinate, target) > 60 {
+                    following = false
+                }
+            }
             .ignoresSafeArea()
 
             VStack(spacing: 8) {
                 maneuverBanner
                 if let banner = engine.banner { statusBanner(banner) }
                 Spacer()
+                if !following {
+                    HStack {
+                        Button {
+                            following = true
+                            followUser()
+                        } label: {
+                            Label("Recentrer", systemImage: "location.north.line.fill")
+                                .font(.headline)
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        Spacer()
+                    }
+                }
                 bottomBar
             }
             .padding(.horizontal, 10)
         }
+        .onAppear { followUser() }
+        .onChange(of: engine.lastFix) { _, _ in followUser() }
         .onChange(of: engine.arrived) { _, arrived in if arrived { showFinish = true } }
         .sheet(isPresented: $showFinish) {
             FinishTripSheet(engine: engine) { battery in
@@ -47,29 +95,64 @@ struct NavigationScreen: View {
         .statusBarHidden(false)
     }
 
+    // MARK: Caméra façon GPS
+
+    /// Carte inclinée, orientée dans le sens de marche, la flèche placée en bas de l'écran.
+    private func followUser() {
+        guard following, let here = engine.displayCoordinate else { return }
+        let heading = engine.displayHeading
+        let distance: Double = engine.currentSpeedKmh > 18 ? 480 : 340
+        let center = GeoMath.offset(here, meters: distance * 0.3, bearing: heading)
+        lastCameraTarget = center
+        withAnimation(.easeInOut(duration: 0.9)) {
+            camera = .camera(MapCamera(centerCoordinate: center, distance: distance, heading: heading, pitch: 55))
+        }
+    }
+
     // MARK: Prochaine manœuvre
 
     private var maneuverBanner: some View {
-        HStack(spacing: 14) {
-            Image(systemName: Maneuver.symbol(for: engine.nextInstruction?.sign ?? 0))
-                .font(.system(size: 42, weight: .bold))
-                .frame(width: 56)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Fmt.distance(engine.progress.distanceToNextManeuver))
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                Text(engine.nextInstruction?.text ?? "Suivez l'itinéraire")
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: Maneuver.symbol(for: engine.nextInstruction?.sign ?? 0))
+                    .font(.system(size: 44, weight: .bold))
+                    .frame(width: 58)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Fmt.distance(engine.progress.distanceToNextManeuver))
+                        .font(.system(size: 32, weight: .heavy, design: .rounded))
+                        .monospacedDigit()
+                    Text(streetTitle(engine.nextInstruction))
+                        .font(.title3.weight(.bold))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(14)
+
+            if let then = engine.followingInstruction, engine.progress.distanceToNextManeuver < 400 {
+                HStack(spacing: 8) {
+                    Text("Puis").font(.subheadline.weight(.semibold))
+                    Image(systemName: Maneuver.symbol(for: then.sign)).font(.subheadline.weight(.bold))
+                    if !then.street.isEmpty { Text(then.street).font(.subheadline).lineLimit(1) }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Theme.guidanceDark)
+            }
         }
         .foregroundStyle(.white)
-        .padding(14)
-        .background(Theme.route.gradient, in: RoundedRectangle(cornerRadius: 18))
+        .background(Theme.guidance)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(radius: 4)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Nom de la rue à prendre en grand (plus lisible que la phrase complète).
+    private func streetTitle(_ ins: RouteInstruction?) -> String {
+        guard let ins else { return "Suivez l'itinéraire" }
+        if ins.isArrival { return engine.destination.title }
+        return ins.street.isEmpty ? ins.text : ins.street
     }
 
     @ViewBuilder
@@ -192,5 +275,24 @@ struct FinishTripSheet: View {
                 }
             }
         }
+    }
+}
+
+
+/// Flèche de position façon GPS : pointe dans le sens de marche.
+struct NavigationArrow: View {
+    let rotation: Double
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Theme.route.opacity(0.18)).frame(width: 66, height: 66)
+            Circle().fill(.white).frame(width: 42, height: 42)
+                .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+            Image(systemName: "location.north.fill")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Theme.route)
+                .rotationEffect(.degrees(rotation))
+        }
+        .accessibilityLabel("Votre position")
     }
 }
