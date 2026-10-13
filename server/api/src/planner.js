@@ -24,7 +24,8 @@ export function createPlanner({ gh, elevation, works, reports, coverageBbox, log
         at: Date.now(),
         value: {
           source: 'OpenStreetMap (© contributeurs OSM, ODbL)',
-          data_date: info.data_date ?? info.import_date ?? null,
+          // osmium ne conserve pas toujours la date de l'extrait (1970) : on se rabat sur la date d'import
+          data_date: (info.data_date && !String(info.data_date).startsWith('1970')) ? info.data_date : (info.import_date ?? null),
           import_date: info.import_date ?? null,
           engine: `GraphHopper ${info.version ?? ''}`.trim(),
           live: false,
