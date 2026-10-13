@@ -24,6 +24,10 @@ final class NavigationEngine {
     private(set) var arrived = false
     private(set) var currentSpeedKmh: Double = 0
     private(set) var traveledDistance: Double = 0
+    /// Dernière position GPS reçue
+    private(set) var lastFix: CLLocation?
+    /// Cap affiché (degrés) : cap GPS en mouvement, sinon direction du tracé
+    private(set) var displayHeading: Double = 0
     let destination: Place
     let origin: Place
     let startDate = Date()
@@ -56,6 +60,37 @@ final class NavigationEngine {
         let tracker = RouteProgressTracker(route: route)
         self.tracker = tracker
         self.progress = tracker.state
+        self.displayHeading = tracker.state.routeBearing
+    }
+
+    /// Position affichée : « aimantée » sur le tracé quand on le suit (comme un GPS auto).
+    var displayCoordinate: CLLocationCoordinate2D? {
+        if let lat = progress.snappedLatitude, let lon = progress.snappedLongitude {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        return lastFix?.coordinate
+    }
+
+    /// Partie déjà parcourue du tracé (affichée en gris).
+    var traveledCoordinates: [CLLocationCoordinate2D] {
+        let coords = route.coordinates
+        guard coords.count >= 2, let here = displayCoordinate, progress.snappedLatitude != nil else { return [] }
+        let idx = min(max(0, progress.segmentIndex), coords.count - 2)
+        return Array(coords[0...idx]) + [here]
+    }
+
+    /// Coordonnée du prochain changement de direction.
+    var nextManeuverCoordinate: CLLocationCoordinate2D? {
+        guard let ins = nextInstruction, !ins.isArrival else { return nil }
+        let coords = route.coordinates
+        guard coords.indices.contains(ins.pointIndex) else { return nil }
+        return coords[ins.pointIndex]
+    }
+
+    /// Instruction suivante (« Puis … »), affichée en petit sous la manœuvre principale.
+    var followingInstruction: RouteInstruction? {
+        let i = progress.nextInstructionIndex + 1
+        return route.instructions.indices.contains(i) ? route.instructions[i] : nil
     }
 
     var nextInstruction: RouteInstruction? {
@@ -95,10 +130,16 @@ final class NavigationEngine {
             if d < 200 { traveledDistance += d }
         }
         lastLocation = location
+        lastFix = location
         currentSpeedKmh = max(0, location.speed) * 3.6
         if banner == .gpsWeak { banner = nil }
 
         progress = tracker.update(location: location.coordinate, horizontalAccuracy: location.horizontalAccuracy)
+        if location.course >= 0, location.speed > 1.5 {
+            displayHeading = location.course
+        } else if progress.snappedLatitude != nil {
+            displayHeading = progress.routeBearing
+        }
 
         if progress.hasArrived && !arrived {
             arrived = true
@@ -185,6 +226,7 @@ final class NavigationEngine {
                 guard let newRoute = plan.routes.first else { throw APIError.invalidResponse }
                 route = newRoute
                 tracker = RouteProgressTracker(route: newRoute)
+                if let fix = lastFix { tracker.update(location: fix.coordinate, horizontalAccuracy: fix.horizontalAccuracy) }
                 progress = tracker.state
                 announced.removeAll()
                 rerouteCount += 1
