@@ -79,6 +79,18 @@ final class RouteProgressTrackerTests: XCTestCase {
         XCTAssertTrue(tracker.update(location: route.coordinates.last!, horizontalAccuracy: 5).hasArrived)
     }
 
+    func testSnappedPositionAndBearing() throws {
+        let route = try makeRoute()
+        var tracker = RouteProgressTracker(route: route)
+        // 8 m au nord du tracé (orienté vers l'est) : la position est « aimantée » dessus
+        let near = CLLocationCoordinate2D(latitude: 45.7578 + 0.00007, longitude: 4.8343)
+        let state = tracker.update(location: near, horizontalAccuracy: 5)
+        XCTAssertEqual(state.snappedLatitude ?? 0, 45.7578, accuracy: 0.00001)
+        XCTAssertEqual(state.routeBearing, 90, accuracy: 1)
+        let moved = GeoMath.offset(near, meters: 100, bearing: 0)
+        XCTAssertEqual(GeoMath.distance(near, moved), 100, accuracy: 1)
+    }
+
     func testRemainingAscentIgnoresDescents() {
         let profile = [170, 180, 170, 185, 185].enumerated().map { ElevationSample(distance: Double($0.offset) * 100, altitude: Double($0.element)) }
         XCTAssertEqual(RouteProgressTracker.remainingAscent(profile: profile, from: 0), 25, accuracy: 0.01)
