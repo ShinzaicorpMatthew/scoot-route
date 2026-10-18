@@ -49,8 +49,9 @@ enum ServerLink {
         guard let url = URL(string: "\(ntfyBase)/\(topic(for: code))/json?poll=1&since=latest") else { return .notFound }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
+        guard let reply = try? await URLSession.shared.data(for: request) else { return .notFound }
+        let (data, response) = reply
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
               let text = String(data: data, encoding: .utf8) else { return .notFound }
 
         // Réponse : un objet JSON par ligne ; on garde le dernier message valide et bien signé

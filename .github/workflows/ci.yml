@@ -47,8 +47,18 @@ jobs:
         run: |
           SIM=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9A-Za-z ]+ \(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}')
           echo "Simulateur : $SIM"
+          set +e
           xcodebuild test -project ScootRoute.xcodeproj -scheme ScootRoute \
-            -destination "id=$SIM" CODE_SIGNING_ALLOWED=NO -quiet
+            -destination "id=$SIM" CODE_SIGNING_ALLOWED=NO > test.log 2>&1
+          status=$?
+          set -e
+          grep -E "error:|failed|Executed" test.log | tail -20 || true
+          if [ $status -ne 0 ]; then
+            # Erreurs remontées en annotations (visibles sur la page du run et via l'API)
+            grep -E "error:|XCTAssert|Test Case .* failed" test.log | sed 's#.*/ScootRoute/##' | sort -u | head -10 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            exit $status
+          fi
       - name: Build iPhone non signé (.ipa)
         run: |
           xcodebuild build -project ScootRoute.xcodeproj -scheme ScootRoute -configuration Release \

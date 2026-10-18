@@ -120,7 +120,7 @@ final class RoutingAPI {
         do {
             return try await sendOnce(path: path, method: method, body: body)
         } catch let error as APIError where Self.suggestsMovedServer(error) {
-            if case .updated = await ServerLink.refresh() {
+            if case .updated(_) = await ServerLink.refresh() {
                 return try await sendOnce(path: path, method: method, body: body)
             }
             throw error
