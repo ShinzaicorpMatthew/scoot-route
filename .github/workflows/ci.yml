@@ -63,8 +63,15 @@ jobs:
         run: |
           xcodebuild build -project ScootRoute.xcodeproj -scheme ScootRoute -configuration Release \
             -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          APP=build/Build/Products/Release-iphoneos/ScootRoute.app
+          ls "$APP/PlugIns"
+          # Signature ad hoc avec les droits (groupe d'apps) : Sideloadly les reprend en re-signant,
+          # ce qui permet à la veille des offres de partager les réglages de l'app.
+          codesign --force --sign - --entitlements OfferWatch/OfferWatch.entitlements "$APP/PlugIns/OfferWatch.appex"
+          codesign --force --sign - --entitlements ScootRoute/Resources/ScootRoute.entitlements "$APP"
+          codesign -d --entitlements - "$APP/PlugIns/OfferWatch.appex" || true
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/ScootRoute.app Payload/
+          cp -R "$APP" Payload/
           zip -qr ScootRoute-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:

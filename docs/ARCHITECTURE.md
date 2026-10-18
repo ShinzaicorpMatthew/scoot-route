@@ -154,3 +154,29 @@ consommation réelle / estimée alimente une moyenne mobile (bornée entre ×0,5
 4. App Attest, HTTPS de production (Caddy/Traefik), sauvegarde de la base des signalements.
 5. Live Activity sur l'écran verrouillé, CarPlay non pertinent ; cartes hors ligne via tuiles
    vectorielles + petit moteur embarqué (chantier conséquent, hors MVP).
+
+## Offres de course : lecture et décision (v4)
+
+**Lecture directe impossible** : l'API Driver d'Uber ne donne que le profil, les gains et l'historique (accès
+restreint) ; les API Uber Eats visent les restaurants ; iOS ne permet pas de lire l'écran, les notifications ou la
+mémoire d'une autre app. Seule voie publique : la diffusion d'écran ReplayKit (lecture d'écran assumée comme telle).
+
+```
+Uber Driver à l'écran
+   │ diffusion d'écran (lancée par le livreur, pastille rouge)
+   ▼
+OfferWatch (extension Broadcast Upload, 50 Mo max)
+   ├─ 1 image / 1,5 s, une seule à la fois ; ignorée si Scoot Route est au premier plan
+   ├─ Vision « fast » → OfferScreenDetector (montant + km/min + « Accepter »)
+   ├─ Vision « accurate » → OfferParser (montant, pourboire, étapes, restaurant, client, confiance)
+   ├─ empreinte → une seule notification par offre (3 min)
+   ├─ ProfitabilityEvaluator sur les valeurs de l'offre → notification immédiate
+   └─ OfferAnalyzer (géocodage + serveur, 10 s max) → notification mise à jour (relief réel)
+         │ groupe d'apps : réglages, adresse serveur, dernière position, dernière offre
+         ▼
+App Scoot Route › Offre (détail, correction, recalcul à l'ouverture si besoin)
+```
+
+Décision : `OfferValidator` (montant 0,5-150 €, 0,1-60 km, 1-180 min, 2-40 km/h) → sinon **Analyse incomplète** ;
+puis ACCEPTER / À ÉVALUER / REFUSER selon 4 seuils réglables (€/h et €/km, acceptation et refus), sur le brut ou
+après frais variables si le livreur le choisit ; cotisations estimées sur le chiffre d'affaires si un taux est saisi.

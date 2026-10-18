@@ -62,6 +62,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>ScootAppGroup</key>
+	<string>group.fr.scootroute.ScootRoute</string>
 	<key>ScootAPIBaseURL</key>
 	<string>$(SCOOT_API_BASE_URL)</string>
 	<key>ScootClientToken</key>

@@ -3,12 +3,12 @@ import Foundation
 import UniformTypeIdentifiers
 
 /// Action Raccourcis « Analyser une offre de course » : reçoit une capture d'écran,
-/// répond « Rentable / Moyen / Pas rentable » sans ouvrir Scoot Route.
+/// répond ACCEPTER / À ÉVALUER / REFUSER (ou « Analyse incomplète ») sans ouvrir Scoot Route.
 /// À associer à « Toucher le dos » (Réglages › Accessibilité › Toucher).
 struct AnalyzeOfferIntent: AppIntent {
     static var title: LocalizedStringResource = "Analyser une offre de course"
     static var description = IntentDescription(
-        "Lit une capture d'écran : une offre (Uber Eats…) → rentable ou non en trottinette ; l'écran batterie de l'app de la trottinette → niveau enregistré.")
+        "Lit une capture d'écran : une offre (Uber Eats…) → accepter, à évaluer ou refuser en trottinette ; l'écran batterie de l'app de la trottinette → niveau enregistré.")
     static var openAppWhenRun: Bool = false
 
     // (supportedContentTypes exige iOS 18 ; l'app vise iOS 17 : toute image est acceptée)

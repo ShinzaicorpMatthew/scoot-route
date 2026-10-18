@@ -13,14 +13,26 @@ struct OfferAnalysis: Codable, Equatable {
     var legs: [OfferLeg]?
     var evaluation: OfferEvaluation?
     var notes: [String] = []
+    /// D'où vient l'offre : "app" (photo choisie), "shortcut" (raccourci), "watch" (veille des offres)
+    var via: String?
 
     static let storeKey = "lastOfferAnalysis"
 
-    /// Texte du raccourci : verdict, ou ce qu'il manque.
+    /// Texte du raccourci ou de la notification : décision, ou ce qu'il manque.
     var summary: String {
-        if let evaluation { return evaluation.summary }
-        if parsed.priceEur == nil { return "Prix non lu sur la capture. Ouvrez Scoot Route › Offre pour le saisir." }
-        return "Adresses et distance introuvables sur la capture. Ouvrez Scoot Route › Offre pour les compléter."
+        var text: String
+        if let evaluation {
+            text = evaluation.summary
+        } else if parsed.priceEur == nil {
+            text = "⚠️ Analyse incomplète : montant non lu. Ouvrez Scoot Route › Offre pour le saisir."
+        } else {
+            text = "⚠️ Analyse incomplète : distance et durée introuvables. Ouvrez Scoot Route › Offre pour les compléter."
+        }
+        let doubtful = parsed.uncertainFields.map(\.label)
+        if !doubtful.isEmpty, evaluation?.decision != .incomplete {
+            text += "\nÀ vérifier : " + doubtful.joined(separator: ", ")
+        }
+        return text
     }
 }
 
@@ -31,24 +43,43 @@ enum OfferError: LocalizedError {
 
 /// Lecture du texte d'une capture d'écran, entièrement sur l'iPhone (Vision).
 enum OfferOCR {
+    struct Line: Equatable { var text: String; var confidence: Float }
+
     static func recognizeLines(in data: Data) async throws -> [String] {
+        try await recognize(in: data).map(\.text)
+    }
+
+    static func recognize(in data: Data) async throws -> [Line] {
         guard let image = UIImage(data: data)?.cgImage else { throw OfferError.badImage }
         return try await Task.detached(priority: .userInitiated) {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.recognitionLanguages = ["fr-FR", "en-US"]
-            request.usesLanguageCorrection = true
-            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-            let observations = request.results ?? []
-            // De haut en bas (Vision : origine en bas à gauche), puis de gauche à droite
-            return observations
-                .sorted {
-                    abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.01
-                        ? $0.boundingBox.midY > $1.boundingBox.midY
-                        : $0.boundingBox.minX < $1.boundingBox.minX
-                }
-                .compactMap { $0.topCandidates(1).first?.string }
+            try OfferOCR.recognize(handler: VNImageRequestHandler(cgImage: image, options: [:]), level: .accurate)
         }.value
+    }
+
+    /// Reconnaissance synchrone (aussi utilisée par la veille des offres sur les images de l'écran).
+    static func recognize(handler: VNImageRequestHandler, level: VNRequestTextRecognitionLevel,
+                          minimumTextHeight: Float = 0) throws -> [Line] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = level
+        request.recognitionLanguages = ["fr-FR", "en-US"]
+        request.usesLanguageCorrection = level == .accurate
+        request.minimumTextHeight = minimumTextHeight
+        try handler.perform([request])
+        let observations = request.results ?? []
+        // De haut en bas (Vision : origine en bas à gauche), puis de gauche à droite
+        return observations
+            .sorted {
+                abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.01
+                    ? $0.boundingBox.midY > $1.boundingBox.midY
+                    : $0.boundingBox.minX < $1.boundingBox.minX
+            }
+            .compactMap { obs in obs.topCandidates(1).first.map { Line(text: $0.string, confidence: $0.confidence) } }
+    }
+
+    static func parseOffer(_ lines: [Line]) -> ParsedOffer {
+        var confidence: [String: Float] = [:]
+        for l in lines { confidence[l.text.trimmingCharacters(in: .whitespacesAndNewlines)] = l.confidence }
+        return OfferParser.parse(lines: lines.map(\.text), confidence: confidence)
     }
 }
 
@@ -76,10 +107,13 @@ struct OfferAnalyzer {
 
     /// Une seule action pour les deux usages : on détecte automatiquement le type d'écran.
     func analyzeScreenshot(imageData: Data, origin: CLLocationCoordinate2D?) async throws -> ScreenshotResult {
-        let lines = try await OfferOCR.recognizeLines(in: imageData)
-        let parsed = OfferParser.parse(lines: lines)
+        let ocr = try await OfferOCR.recognize(in: imageData)
+        let lines = ocr.map(\.text)
+        let parsed = OfferOCR.parseOffer(ocr)
         if parsed.isUsable {
-            return .offer(await analyze(parsed: parsed, origin: origin))
+            var analysis = await analyze(parsed: parsed, origin: origin)
+            analysis.via = "shortcut"
+            return .offer(analysis)
         }
         if let reading = BatteryScreenParser.parse(lines: lines, nominalVoltage: vehicle.nominalVoltage),
            reading.effectivePercent != nil {
@@ -109,8 +143,10 @@ struct OfferAnalyzer {
     }
 
     func analyze(imageData: Data, origin: CLLocationCoordinate2D?) async throws -> OfferAnalysis {
-        let lines = try await OfferOCR.recognizeLines(in: imageData)
-        return await analyze(parsed: OfferParser.parse(lines: lines), origin: origin)
+        let ocr = try await OfferOCR.recognize(in: imageData)
+        var analysis = await analyze(parsed: OfferOCR.parseOffer(ocr), origin: origin)
+        analysis.via = "app"
+        return analysis
     }
 
     /// Analyse à partir d'une offre lue (ou corrigée à la main par l'utilisateur).
@@ -138,12 +174,34 @@ struct OfferAnalyzer {
             result.notes.append("Restaurant ou client non localisé : estimation de l'offre utilisée")
         }
 
-        if let price = parsed.priceEur {
-            result.evaluation = ProfitabilityEvaluator.evaluate(
-                priceEur: price, legs: result.legs, announcedKm: parsed.announcedDistanceKm,
-                announcedMin: parsed.announcedDurationMin, settings: offerSettings, vehicle: vehicle)
-        }
+        result.evaluation = ProfitabilityEvaluator.evaluate(offer: parsed, legs: result.legs,
+                                                            settings: offerSettings, vehicle: vehicle)
         return result
+    }
+
+    /// Évaluation immédiate avec les seules valeurs de l'offre (aucun réseau) : pour réagir
+    /// en une seconde pendant que le vrai trajet trottinette est calculé.
+    func quickAnalysis(parsed: ParsedOffer) -> OfferAnalysis {
+        var result = OfferAnalysis(parsed: parsed)
+        result.evaluation = ProfitabilityEvaluator.evaluate(offer: parsed, legs: nil,
+                                                            settings: offerSettings, vehicle: vehicle)
+        return result
+    }
+
+    /// Analyse complète limitée dans le temps (nil si elle n'a pas abouti à temps).
+    func analyze(parsed: ParsedOffer, origin: CLLocationCoordinate2D?, timeout: TimeInterval) async -> OfferAnalysis? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<OfferAnalysis?, Never>) in
+            let once = ResumeOnce(continuation)
+            let work = Task {
+                let full = await self.analyze(parsed: parsed, origin: origin)
+                once.resume(full)
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                work.cancel()
+                once.resume(nil)
+            }
+        }
     }
 
     static let lyonCenter = CLLocationCoordinate2D(latitude: 45.7578, longitude: 4.8320)
@@ -188,9 +246,25 @@ struct OfferAnalyzer {
     static func lastKnownLocation() -> CLLocationCoordinate2D? {
         let manager = CLLocationManager()
         if let loc = manager.location, Date().timeIntervalSince(loc.timestamp) < 600 { return loc.coordinate }
-        let d = UserDefaults.standard
+        let d = SharedStore.defaults
         guard let lat = d.object(forKey: "lastLat") as? Double, let lon = d.object(forKey: "lastLon") as? Double,
               let t = d.object(forKey: "lastLocTime") as? Double, Date().timeIntervalSince1970 - t < 1800 else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+}
+
+/// Reprend une attente une seule fois (le premier résultat l'emporte).
+private final class ResumeOnce<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Never>?
+
+    init(_ continuation: CheckedContinuation<T, Never>) { self.continuation = continuation }
+
+    func resume(_ value: T) {
+        lock.lock()
+        let c = continuation
+        continuation = nil
+        lock.unlock()
+        c?.resume(returning: value)
     }
 }

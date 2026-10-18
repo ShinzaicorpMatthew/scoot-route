@@ -77,7 +77,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             self.location = last
             self.lastFixDate = Date()
             // Mémorisée pour l'analyse d'offre par raccourci (app en arrière-plan)
-            let d = UserDefaults.standard
+            let d = SharedStore.defaults
             if Date().timeIntervalSince1970 - d.double(forKey: "lastLocTime") > 30 {
                 d.set(last.coordinate.latitude, forKey: "lastLat")
                 d.set(last.coordinate.longitude, forKey: "lastLon")

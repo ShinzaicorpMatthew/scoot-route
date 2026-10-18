@@ -99,25 +99,62 @@ struct Place: Identifiable, Codable, Equatable {
     }
 }
 
-/// Persistance simple en JSON dans UserDefaults.
+/// Réglages partagés entre l'app et l'extension « Veille des offres » (groupe d'apps).
+/// Si le groupe n'est pas disponible (signature sans ce droit), on retombe sur les réglages
+/// propres à l'app : tout fonctionne, seule la veille utilise alors ses valeurs par défaut.
+enum SharedStore {
+    static var groupID: String? {
+        let id = (Bundle.main.object(forInfoDictionaryKey: "ScootAppGroup") as? String ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        return id.isEmpty || id.hasPrefix("$(") ? nil : id
+    }
+
+    /// Vrai si l'app et l'extension partagent réellement leurs données.
+    static let isShared: Bool = {
+        guard let groupID else { return false }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) != nil
+    }()
+
+    static let defaults: UserDefaults = {
+        if isShared, let groupID, let d = UserDefaults(suiteName: groupID) { return d }
+        return .standard
+    }()
+
+    /// Clés copiées une fois depuis les anciens réglages de l'app (versions sans groupe).
+    static let migratedKeys = ["vehicle", "settings", "offerSettings", "lastOfferAnalysis", "deviceId",
+                               "serverURLOverride", "pairingCode", "pairingLastSync",
+                               "lastLat", "lastLon", "lastLocTime"]
+
+    static func migrateIfNeeded() {
+        guard isShared, defaults.object(forKey: "sharedMigrated") == nil else { return }
+        for key in migratedKeys {
+            if defaults.object(forKey: key) == nil, let value = UserDefaults.standard.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: "sharedMigrated")
+    }
+}
+
+/// Persistance simple en JSON dans les réglages partagés.
 enum LocalStore {
     static func load<T: Decodable>(_ type: T.Type, key: String, default value: T) -> T {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard let data = SharedStore.defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode(T.self, from: data) else { return value }
         return decoded
     }
 
     static func save<T: Encodable>(_ value: T, key: String) {
         if let data = try? JSONEncoder().encode(value) {
-            UserDefaults.standard.set(data, forKey: key)
+            SharedStore.defaults.set(data, forKey: key)
         }
     }
 
     /// Identifiant anonyme de l'appareil pour les signalements (aucune donnée personnelle).
     static var deviceId: String {
-        if let id = UserDefaults.standard.string(forKey: "deviceId") { return id }
+        if let id = SharedStore.defaults.string(forKey: "deviceId") { return id }
         let id = UUID().uuidString
-        UserDefaults.standard.set(id, forKey: "deviceId")
+        SharedStore.defaults.set(id, forKey: "deviceId")
         return id
     }
 }

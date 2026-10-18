@@ -1,8 +1,10 @@
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 @main
 struct ScootRouteApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -20,9 +22,15 @@ struct ScootRouteApp: App {
                     // scootroute://go?q=<adresse ou coordonnées>  ou lien Apple Plans / Google Maps
                     Task { await model.importText(url.absoluteString, into: .customer) }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openOfferTab)) { _ in
+                    openOfferTabIfRequested()
+                }
                 .onChange(of: scenePhase) { _, phase in
+                    // La veille des offres ne lit pas l'écran quand Scoot Route est affiché
+                    WatchStatus.setAppForeground(phase == .active)
                     if phase == .active {
-                        model.reloadLastOffer()   // une offre a pu être analysée par le raccourci
+                        model.reloadLastOffer()   // une offre a pu être analysée par la veille ou le raccourci
+                        openOfferTabIfRequested()
                         Task {
                             await ServerLink.refresh()
                             await model.consumePendingImport()
@@ -31,6 +39,42 @@ struct ScootRouteApp: App {
                 }
         }
         .modelContainer(for: TripRecord.self)
+    }
+
+    /// Notification d'offre touchée : on ouvre l'onglet Offre.
+    private func openOfferTabIfRequested() {
+        guard AppDelegate.pendingOfferTab else { return }
+        AppDelegate.pendingOfferTab = false
+        model.reloadLastOffer()
+        model.selectedTab = .offer
+    }
+}
+
+/// Reçoit les notifications de la veille des offres.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    static let openOfferTab = Notification.Name("scootroute.openOfferTab")
+    static var pendingOfferTab = false
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if response.notification.request.content.userInfo[OfferNotifier.tabKey] as? String == "offer" {
+            DispatchQueue.main.async {
+                AppDelegate.pendingOfferTab = true
+                NotificationCenter.default.post(name: AppDelegate.openOfferTab, object: nil)
+            }
+        }
+        completionHandler()
     }
 }
 

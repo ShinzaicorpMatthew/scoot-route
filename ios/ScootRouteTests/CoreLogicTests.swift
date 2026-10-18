@@ -223,42 +223,162 @@ final class OfferParserTests: XCTestCase {
 
 final class ProfitabilityTests: XCTestCase {
     private let vehicle = VehicleProfile(batteryWh: 474, batteryPercent: 80, cruiseSpeedKmh: 20)
+    private let twoLegs = [OfferLeg(distanceM: 1000, durationS: 180, ascentM: 0, descentM: 0),
+                           OfferLeg(distanceM: 2500, durationS: 480, ascentM: 5, descentM: 5)]
 
-    func testGoodOffer() {
+    func testAcceptOffer() {
         // 8 € pour ~19 min (11 min de route + 8 min d'arrêts) et 3,5 km
-        let legs = [OfferLeg(distanceM: 1000, durationS: 180, ascentM: 0, descentM: 0),
-                    OfferLeg(distanceM: 2500, durationS: 480, ascentM: 5, descentM: 5)]
-        let e = ProfitabilityEvaluator.evaluate(priceEur: 8, legs: legs, announcedKm: nil, announcedMin: nil,
-                                                settings: OfferSettings(), vehicle: vehicle)!
-        XCTAssertEqual(e.verdict, .good)
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 8, legs: twoLegs, announcedKm: nil, announcedMin: nil,
+                                                settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(e.decision, .accept)
         XCTAssertEqual(e.totalMinutes, 19, accuracy: 0.01)
         XCTAssertEqual(e.eurPerKm, 8 / 3.5, accuracy: 0.01)
+        XCTAssertEqual(e.approachKm ?? 0, 1, accuracy: 0.001)
+        XCTAssertEqual(e.descentM, 5)
         XCTAssertEqual(e.source, .scooterRoute)
+        XCTAssertNil(e.afterCostsEur, "pas de frais renseignés : pas de calcul après frais")
     }
 
-    func testBadOffer() {
+    func testRefuseOffer() {
         let legs = [OfferLeg(distanceM: 6000, durationS: 1300, ascentM: 90, descentM: 10)]
         let e = ProfitabilityEvaluator.evaluate(priceEur: 4, legs: legs, announcedKm: nil, announcedMin: nil,
-                                                settings: OfferSettings(), vehicle: vehicle)!
-        XCTAssertEqual(e.verdict, .bad)
+                                                settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(e.decision, .refuse)
         XCTAssertTrue(e.reasons.contains { $0.contains("Montées") })
+    }
+
+    func testEvaluateBetweenThresholds() {
+        // 6,50 € pour 30 min (22 de route + 8 d'arrêts) et 4 km → 13 €/h, entre 12 et 15
+        let legs = [OfferLeg(distanceM: 4000, durationS: 1320, ascentM: 0, descentM: 0)]
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 6.5, legs: legs, announcedKm: nil, announcedMin: nil,
+                                                settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(e.eurPerHour, 13, accuracy: 0.01)
+        XCTAssertEqual(e.decision, .evaluate)
     }
 
     func testFallbackOnAnnouncedValues() {
         let e = ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: 4, announcedMin: 20,
-                                                settings: OfferSettings(), vehicle: vehicle)!
+                                                settings: OfferSettings(), vehicle: vehicle)
         XCTAssertEqual(e.source, .announced)
         XCTAssertEqual(e.totalMinutes, 23, accuracy: 0.01) // 20 min + 3 min de remise
-        XCTAssertNil(ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: nil, announcedMin: nil,
-                                                     settings: OfferSettings(), vehicle: vehicle))
     }
 
-    func testEmptyBatteryMakesOfferBad() {
+    func testIncompleteWhenDataMissingOrIncoherent() {
+        let none = ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: nil, announcedMin: nil,
+                                                   settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(none.decision, .incomplete)
+        let noDuration = ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: 4, announcedMin: nil,
+                                                         settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(noDuration.decision, .incomplete)
+        XCTAssertTrue(noDuration.issues.contains("Durée inconnue"))
+        // 20 km en 5 min = 240 km/h : lecture erronée
+        let absurd = ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: 20, announcedMin: 5,
+                                                     settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(absurd.decision, .incomplete)
+        XCTAssertTrue(absurd.issues.contains { $0.contains("incohérentes") })
+        let noPrice = ProfitabilityEvaluator.evaluate(priceEur: nil, legs: twoLegs, announcedKm: nil, announcedMin: nil,
+                                                      settings: OfferSettings(), vehicle: vehicle)
+        XCTAssertEqual(noPrice.decision, .incomplete)
+        XCTAssertTrue(noPrice.summary.contains("Analyse incomplète"))
+    }
+
+    func testCostsAndCharges() {
+        var s = OfferSettings()
+        s.operatingCostPerKm = 0.10
+        s.socialChargesPercent = 20
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 8, legs: twoLegs, announcedKm: nil, announcedMin: nil,
+                                                settings: s, vehicle: vehicle)
+        XCTAssertEqual(e.operatingCostEur ?? 0, 0.35, accuracy: 0.001)
+        XCTAssertEqual(e.afterCostsEur ?? 0, 7.65, accuracy: 0.001)
+        XCTAssertEqual(e.afterChargesEur ?? 0, 8 - 0.35 - 1.6, accuracy: 0.001)
+        XCTAssertEqual(e.judgedOn, "brut")
+        // Décision sur le gain après frais : des frais élevés font passer l'offre en refus
+        s.operatingCostPerKm = 1.5
+        s.judgeAfterCosts = true
+        let net = ProfitabilityEvaluator.evaluate(priceEur: 8, legs: twoLegs, announcedKm: nil, announcedMin: nil,
+                                                  settings: s, vehicle: vehicle)
+        XCTAssertEqual(net.judgedOn, "après frais")
+        XCTAssertEqual(net.decision, .refuse)
+    }
+
+    func testEmptyBatteryMakesOfferRefused() {
         let low = VehicleProfile(batteryWh: 300, batteryPercent: 4)
         let legs = [OfferLeg(distanceM: 3000, durationS: 600, ascentM: 0, descentM: 0)]
         let e = ProfitabilityEvaluator.evaluate(priceEur: 15, legs: legs, announcedKm: nil, announcedMin: nil,
-                                                settings: OfferSettings(), vehicle: low)!
-        XCTAssertEqual(e.verdict, .bad)
+                                                settings: OfferSettings(), vehicle: low)
+        XCTAssertEqual(e.decision, .refuse)
+    }
+
+    func testOldSettingsStillLoad() throws {
+        let json = #"{"targetEurPerHour":20,"minEurPerKm":1.2,"waitAtRestaurantMin":6,"handoffMin":3}"#
+        let s = try JSONDecoder().decode(OfferSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(s.targetEurPerHour, 20)
+        XCTAssertEqual(s.minEurPerHour, 16)
+        XCTAssertEqual(s.refuseEurPerKm, 0.96, accuracy: 0.001)
+        XCTAssertEqual(s.waitAtRestaurantMin, 6)
+        XCTAssertNil(s.operatingCostPerKm)
+        XCTAssertFalse(s.judgeAfterCosts)
+    }
+}
+
+final class OfferReadingTests: XCTestCase {
+    func testStreetOnlyRestaurantIsFlagged() {
+        // Cas réel : le restaurant a été lu comme une simple rue
+        let o = OfferParser.parse(lines: ["9,50 €", "Route de Lyon", "32 min (7,4 km) au total",
+                                          "49 Route de Vienne", "Accepter"])
+        XCTAssertEqual(o.pickupText, "Route de Lyon")
+        XCTAssertTrue(o.isUncertain(.pickup))
+        XCTAssertFalse(o.isUncertain(.dropoff))
+        XCTAssertEqual(o.announcedDistanceKm, 7.4)
+        XCTAssertEqual(o.announcedDurationMin, 32)
+    }
+
+    func testDetailedLegsGiveApproach() {
+        let o = OfferParser.parse(lines: ["7,80 €", "8 min (1,5 km)", "Sushi Shop", "Cours Vitton",
+                                          "14 min (2,6 km)", "Rue Garibaldi", "Accepter"])
+        XCTAssertEqual(o.approachKm, 1.5)
+        XCTAssertEqual(o.approachMin, 8)
+        XCTAssertEqual(o.announcedDistanceKm ?? 0, 4.1, accuracy: 0.001)
+        XCTAssertEqual(o.announcedDurationMin, 22)
+        XCTAssertEqual(o.pickupText, "Sushi Shop, Cours Vitton")
+    }
+
+    func testTipIsReadButNotTakenAsPrice() {
+        let o = OfferParser.parse(lines: ["11,20 €", "Inclut 2,00 € de pourboire", "25 min (5 km) au total"])
+        XCTAssertEqual(o.priceEur, 11.2)
+        XCTAssertEqual(o.tipEur, 2)
+    }
+
+    func testLowConfidencePriceIsFlagged() {
+        let lines = ["6,85 €", "22 min (4,1 km) au total", "Burger King", "Rue Duguesclin, 69006 Lyon"]
+        let o = OfferParser.parse(lines: lines, confidence: ["6,85 €": 0.3])
+        XCTAssertTrue(o.isUncertain(.price))
+        XCTAssertFalse(OfferParser.parse(lines: lines, confidence: ["6,85 €": 0.95]).isUncertain(.price))
+    }
+
+    func testOfferScreenDetection() {
+        let offer = ["6,85 €", "22 min (4,1 km) au total", "Burger King", "Accepter"]
+        XCTAssertTrue(OfferScreenDetector.looksLikeOffer(offer))
+        XCTAssertFalse(OfferScreenDetector.looksLikeOffer(["6,85 €", "22 min (4,1 km)", "Résumé de la course"]),
+                       "pas de bouton d'acceptation : écran de gains, pas une offre")
+        XCTAssertFalse(OfferScreenDetector.looksLikeOffer(["Scoot Route · ✅ ACCEPTER", "6,85 € pour 22 min et 4,1 km"]),
+                       "nos propres notifications ne sont jamais relues")
+        XCTAssertFalse(OfferScreenDetector.looksLikeOffer(["Accepter", "Bienvenue"]))
+    }
+
+    func testSameOfferHasSameFingerprint() {
+        let a = OfferParser.parse(lines: ["6,85 €", "22 min (4,1 km) au total", "Accepter"])
+        let b = OfferParser.parse(lines: ["6,86 €", "22 min (4,1 km) au total", "Burger King", "Accepter"])
+        let c = OfferParser.parse(lines: ["9,40 €", "30 min (6,0 km) au total", "Accepter"])
+        XCTAssertEqual(OfferScreenDetector.fingerprint(a), OfferScreenDetector.fingerprint(b))
+        XCTAssertNotEqual(OfferScreenDetector.fingerprint(a), OfferScreenDetector.fingerprint(c))
+    }
+
+    func testValidator() {
+        XCTAssertTrue(OfferValidator.isCoherent(km: 4.1, minutes: 22))
+        XCTAssertFalse(OfferValidator.isCoherent(km: 41, minutes: 22))
+        XCTAssertEqual(OfferValidator.issues(priceEur: 500, km: 4, minutes: 20).count, 1)
+        XCTAssertTrue(OfferValidator.issues(priceEur: 6, km: 4, minutes: 20).isEmpty)
     }
 }
 

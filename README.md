@@ -171,13 +171,45 @@ pas d'API publique pour les adresses des courses, et ni scraping ni automatisati
 
 ## 4 bis. Savoir si une offre Uber Eats est rentable
 
-Onglet **Offre** : analysez une capture d'écran d'offre, ou — sans quitter Uber Eats — créez le raccourci
-« Prendre une capture d'écran » → « Analyser une offre de course » et associez-le à
-**Réglages › Accessibilité › Toucher › Toucher le dos**. Scoot Route lit la capture sur l'iPhone (Vision),
-retrouve le restaurant et le client, calcule les trajets trottinette réels (position → restaurant → client,
-avec le relief), ajoute l'attente au restaurant et la remise, puis compare le gain horaire et le gain par km
-à vos objectifs (réglables). Aucune donnée n'est lue dans l'app Uber Eats elle-même : pas d'API publique,
-pas de scraping, c'est le livreur qui fournit sa capture.
+### Peut-on lire l'offre directement, sans image ? Non (vérifié en octobre 2026)
+
+| Piste | Verdict | Pourquoi |
+|---|---|---|
+| API Driver d'Uber | Impossible | Profil, gains et historique des courses **terminées** seulement ; accès sur demande, fermé. Aucune offre en attente. |
+| API Uber Eats (Marketplace) | Impossible | Réservée aux restaurants (menus, commandes, magasins). Rien pour les livreurs. |
+| Uber Direct | Impossible | Pour les commerçants qui commandent des livraisons. |
+| Lire l'écran, les notifications ou la mémoire d'Uber Driver | Impossible | iOS isole chaque app ; pas d'équivalent aux services d'accessibilité d'Android. |
+| Partage, presse-papiers, lien, raccourci exposé par Uber Driver | Impossible | Uber Driver ne propose rien de tel pour les offres. |
+| **Diffusion d'écran ReplayKit** (extension « Broadcast Upload ») | **Faisable** | API publique d'Apple. Le livreur la lance une fois ; l'extension reçoit les images de l'écran. C'est de la **lecture d'écran**, pas un accès aux données. |
+| Capture + raccourci « toucher le dos » | Faisable | Déjà en place : un geste par offre. |
+
+### Utilisation
+
+1. **Veille des offres** (recommandé) : onglet **Offre › Démarrer ou arrêter la veille › Commencer la diffusion**,
+   au début du service. Chaque offre qui s'affiche dans Uber Driver est lue sur l'iPhone (Vision, ~1 image / 1,5 s,
+   rien n'est enregistré ni envoyé) et la décision arrive en **notification** en 1 à 2 s. Si le serveur répond, la
+   notification est mise à jour avec le vrai trajet trottinette (relief compris).
+2. **Raccourci** « Prendre une capture d'écran » → « Analyser une offre de course », lancé par
+   **Toucher le dos** (Réglages › Accessibilité › Toucher).
+3. **Capture** choisie dans Photos depuis l'onglet Offre.
+
+### Décision
+
+- Données vérifiées d'abord : montant, distance, durée et vitesse moyenne plausible. Sinon : **⚠️ Analyse incomplète**.
+- **✅ ACCEPTER** si le gain horaire et le gain au km atteignent vos seuils d'acceptation ;
+  **❌ REFUSER** sous l'un des seuils de refus (ou batterie insuffisante) ; **🟠 À ÉVALUER** entre les deux.
+- Seuils, attente au restaurant, remise, **frais variables / km** et **taux de cotisations** sont réglables dans
+  l'onglet Offre. Les frais et cotisations ne sont comptés que si vous les renseignez. Les montants « après frais » et
+  « après cotisations » sont des estimations, ni un bénéfice comptable, ni un revenu après impôt.
+- Champs lus avec peu de confiance (restaurant réduit à une rue, montant flou…) : signalés **À vérifier**.
+
+### Prérequis de la veille
+
+- Notifications autorisées pour Scoot Route.
+- Groupe d'apps `group.fr.scootroute.ScootRoute` (déclaré dans les droits de l'app et de l'extension) pour partager
+  réglages, adresse du serveur et dernière position. Sans lui, la veille marche quand même, avec les seuils par défaut
+  et la distance de l'offre (l'app l'indique).
+- Compte Apple gratuit : l'extension compte comme un identifiant d'app de plus (limite de 10 par semaine).
 
 ## 5. Coûts estimés
 

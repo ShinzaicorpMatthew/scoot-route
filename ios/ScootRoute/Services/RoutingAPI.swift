@@ -8,7 +8,7 @@ enum AppConfig {
 
     /// Adresse saisie dans Réglages (prioritaire), sinon celle fixée à la compilation.
     static var apiBaseURL: URL {
-        if let saved = UserDefaults.standard.string(forKey: overrideKey), let url = URL(string: saved) {
+        if let saved = SharedStore.defaults.string(forKey: overrideKey), let url = URL(string: saved) {
             return url
         }
         let raw = Bundle.main.object(forInfoDictionaryKey: "ScootAPIBaseURL") as? String ?? ""
@@ -20,12 +20,12 @@ enum AppConfig {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         while t.hasSuffix("/") { t.removeLast() }
         if t.isEmpty {
-            UserDefaults.standard.removeObject(forKey: overrideKey)
+            SharedStore.defaults.removeObject(forKey: overrideKey)
             return
         }
         if !t.lowercased().hasPrefix("http") { t = "https://" + t }
         if let url = URL(string: t), url.host != nil {
-            UserDefaults.standard.set(t, forKey: overrideKey)
+            SharedStore.defaults.set(t, forKey: overrideKey)
         }
     }
     static var clientToken: String {

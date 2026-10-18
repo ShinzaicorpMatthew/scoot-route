@@ -47,6 +47,7 @@ final class AppModel {
     }
 
     init() {
+        SharedStore.migrateIfNeeded()   // réglages partagés avec la veille des offres
         vehicle = LocalStore.load(VehicleProfile.self, key: "vehicle", default: VehicleProfile())
         settings = LocalStore.load(AppSettings.self, key: "settings", default: AppSettings())
         offerSettings = LocalStore.load(OfferSettings.self, key: "offerSettings", default: OfferSettings())
@@ -65,6 +66,16 @@ final class AppModel {
         // Le raccourci a pu enregistrer un nouveau niveau de batterie
         let stored = LocalStore.load(VehicleProfile.self, key: "vehicle", default: vehicle)
         if stored != vehicle { vehicle = stored }
+        refineWatchedOfferIfNeeded()
+    }
+
+    /// Offre lue par la veille sans trajet trottinette (serveur trop lent, position inconnue) :
+    /// à l'ouverture de l'app, on calcule le vrai trajet avec la position actuelle.
+    private func refineWatchedOfferIfNeeded() {
+        guard let offer = lastOffer, offer.via == "watch", !isAnalyzingOffer,
+              offer.evaluation?.source != .scooterRoute,
+              Date().timeIntervalSince(offer.date) < 15 * 60 else { return }
+        Task { await reanalyzeOffer(offer.parsed, keepPlaces: false) }
     }
 
     var batteryMessage: String?
@@ -102,9 +113,10 @@ final class AppModel {
     func reanalyzeOffer(_ parsed: ParsedOffer, keepPlaces: Bool) async {
         isAnalyzingOffer = true
         defer { isAnalyzingOffer = false }
-        let result = await offerAnalyzer.analyze(
-            parsed: parsed, origin: location.location?.coordinate,
+        var result = await offerAnalyzer.analyze(
+            parsed: parsed, origin: location.location?.coordinate ?? OfferAnalyzer.lastKnownLocation(),
             pickup: keepPlaces ? lastOffer?.pickup : nil, dropoff: keepPlaces ? lastOffer?.dropoff : nil)
+        result.via = lastOffer?.via
         lastOffer = result
         LocalStore.save(result, key: OfferAnalysis.storeKey)
     }

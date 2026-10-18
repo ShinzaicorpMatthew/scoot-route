@@ -11,14 +11,14 @@ enum ServerLink {
 
     static var code: String? {
         get {
-            let c = UserDefaults.standard.string(forKey: codeKey) ?? ""
+            let c = SharedStore.defaults.string(forKey: codeKey) ?? ""
             return normalize(c).count >= 8 ? c : nil
         }
-        set { UserDefaults.standard.set(newValue, forKey: codeKey) }
+        set { SharedStore.defaults.set(newValue, forKey: codeKey) }
     }
 
     static var lastSync: Date? {
-        UserDefaults.standard.object(forKey: lastSyncKey) as? Date
+        SharedStore.defaults.object(forKey: lastSyncKey) as? Date
     }
 
     static func normalize(_ code: String) -> String {
@@ -63,7 +63,7 @@ enum ServerLink {
             return pub
         }
         guard let pub = candidates.last(where: { isValid($0, code: code) }) else { return .notFound }
-        UserDefaults.standard.set(Date(), forKey: lastSyncKey)
+        SharedStore.defaults.set(Date(), forKey: lastSyncKey)
         if AppConfig.apiBaseURL.absoluteString == pub.url { return .unchanged }
         AppConfig.setServerOverride(pub.url)
         return .updated(pub.url)

@@ -25,14 +25,50 @@ targets:
       - path: ScootRoute
         excludes:
           - "Resources/Info.plist"
+          - "Resources/ScootRoute.entitlements"
+    dependencies:
+      - target: OfferWatch
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.scootroute.ScootRoute
+        CODE_SIGN_ENTITLEMENTS: ScootRoute/Resources/ScootRoute.entitlements
         INFOPLIST_FILE: ScootRoute/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
+  # Veille des offres : extension de diffusion d'écran (ReplayKit). Elle lit l'écran pendant
+  # la diffusion lancée par le livreur ; elle partage avec l'app le code d'analyse des offres.
+  OfferWatch:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: OfferWatch
+        excludes:
+          - "Info.plist"
+          - "OfferWatch.entitlements"
+      - ScootRoute/Core/OfferParser.swift
+      - ScootRoute/Core/ProfitabilityEvaluator.swift
+      - ScootRoute/Core/BatteryEstimator.swift
+      - ScootRoute/Core/BatteryScreenParser.swift
+      - ScootRoute/Core/GeoMath.swift
+      - ScootRoute/Core/OfferWatchSupport.swift
+      - ScootRoute/Core/OfferNotifier.swift
+      - ScootRoute/Models/Preferences.swift
+      - ScootRoute/Models/RouteModels.swift
+      - ScootRoute/Services/OfferAnalyzer.swift
+      - ScootRoute/Services/RoutingAPI.swift
+      - ScootRoute/Services/ServerLink.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.scootroute.ScootRoute.OfferWatch
+        INFOPLIST_FILE: OfferWatch/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: OfferWatch/OfferWatch.entitlements
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
   ScootRouteTests:
     type: bundle.unit-test
     platform: iOS
@@ -51,6 +87,7 @@ schemes:
     build:
       targets:
         ScootRoute: all
+        OfferWatch: all
         ScootRouteTests: [test]
     test:
       targets:
