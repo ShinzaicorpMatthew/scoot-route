@@ -5,12 +5,23 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.modelContext) private var context
     @State private var confirmDelete = false
+    @State private var showProfile = false
+    @State private var pairingCode = ServerLink.code ?? ""
+    @State private var linkStatus: String?
+    @State private var linking = false
     @State private var serverURL = AppConfig.apiBaseURL.absoluteString
 
     var body: some View {
         @Bindable var model = model
         NavigationStack {
             Form {
+                Section {
+                    Button {
+                        showProfile = true
+                    } label: {
+                        Label("Ma trottinette et ma batterie", systemImage: "scooter")
+                    }
+                }
                 Section {
                     Picker("Profil sélectionné par défaut", selection: $model.settings.defaultProfile) {
                         Text("Rapide").tag("fast")
@@ -78,6 +89,31 @@ struct SettingsView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {
+                    TextField("Code de liaison (ex. K7Q2-9FMX-3HPA)", text: $pairingCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.body.monospaced())
+                    Button {
+                        Task { await link() }
+                    } label: {
+                        HStack {
+                            if linking { ProgressView() }
+                            Text("Lier mon serveur")
+                        }
+                    }
+                    .disabled(ServerLink.normalize(pairingCode).count < 8 || linking)
+                    if let linkStatus { Text(linkStatus).font(.caption) }
+                    if let sync = ServerLink.lastSync {
+                        Text("Dernière synchronisation : \(sync.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Liaison automatique")
+                } footer: {
+                    Text("Sur le PC, ouvrez http://localhost:8080/liaison pour voir le code. Une fois lié, l'app retrouve seule l'adresse du serveur à chaque redémarrage : plus rien à copier.")
+                }
+
+                Section {
                     TextField("https://…trycloudflare.com", text: $serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -92,12 +128,13 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(model.serverMeta == nil ? Theme.restriction : Theme.cycle)
                 } header: {
-                    Text("Adresse du serveur")
+                    Text("Adresse du serveur (manuel)")
                 } footer: {
-                    Text("Collez ici l'adresse donnée par cloudflared sur votre PC. Elle change à chaque lancement du tunnel : mettez-la à jour ici, sans réinstaller l'app.")
+                    Text("Remplie automatiquement par la liaison. À ne modifier qu'en dépannage.")
                 }
             }
             .navigationTitle("Réglages")
+            .sheet(isPresented: $showProfile) { ProfileView().environment(model) }
             .task { await model.loadServerMeta() }
             .confirmationDialog("Effacer tout l'historique ?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Effacer", role: .destructive) {
@@ -126,5 +163,24 @@ struct SettingsView: View {
         case ..<0.75: return "moyen"
         default: return "prioritaire"
         }
+    }
+
+    private func link() async {
+        linking = true
+        defer { linking = false }
+        ServerLink.code = pairingCode.trimmingCharacters(in: .whitespaces)
+        switch await ServerLink.refresh() {
+        case let .updated(url):
+            serverURL = url
+            linkStatus = "Lié ✓ — serveur \(url)"
+        case .unchanged:
+            serverURL = AppConfig.apiBaseURL.absoluteString
+            linkStatus = "Lié ✓"
+        case .notFound:
+            linkStatus = "Aucune adresse publiée pour ce code. Vérifiez le code et que le PC et Docker sont allumés (attendez 2 minutes après le démarrage)."
+        case .noCode:
+            linkStatus = "Code invalide."
+        }
+        await model.loadServerMeta()
     }
 }

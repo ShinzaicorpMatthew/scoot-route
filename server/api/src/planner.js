@@ -94,7 +94,8 @@ export function createPlanner({ gh, elevation, works, reports, coverageBbox, log
     }
 
     // Moins de 3 trajets distincts : on demande des alternatives réelles au moteur
-    if (!isReroute && distinct.length < 3) {
+    // quick : analyse d'offre (un seul trajet, réponse la plus rapide possible)
+    if (!isReroute && !req.quick && distinct.length < 3) {
       try {
         const alts = await gh.route(from, to, modelFor('balanced'), { alternatives: 3 });
         for (const p of alts) {

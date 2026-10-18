@@ -169,6 +169,16 @@ pas d'API publique pour les adresses des courses, et ni scraping ni automatisati
 
 ---
 
+## 4 bis. Savoir si une offre Uber Eats est rentable
+
+Onglet **Offre** : analysez une capture d'écran d'offre, ou — sans quitter Uber Eats — créez le raccourci
+« Prendre une capture d'écran » → « Analyser une offre de course » et associez-le à
+**Réglages › Accessibilité › Toucher › Toucher le dos**. Scoot Route lit la capture sur l'iPhone (Vision),
+retrouve le restaurant et le client, calcule les trajets trottinette réels (position → restaurant → client,
+avec le relief), ajoute l'attente au restaurant et la remise, puis compare le gain horaire et le gain par km
+à vos objectifs (réglables). Aucune donnée n'est lue dans l'app Uber Eats elle-même : pas d'API publique,
+pas de scraping, c'est le livreur qui fournit sa capture.
+
 ## 5. Coûts estimés
 
 | Poste | Coût |

@@ -19,7 +19,10 @@ export const NORMALIZATION = { minutesPerUnit: 1, metersPerUnit: 250, climbMeter
 /** Construit une fonction index-de-point → valeur pour un détail GraphHopper. */
 function detailLookup(intervals = []) {
   return (idx) => {
-    for (const [from, to, value] of intervals) if (idx >= from && idx < to) return value;
+    for (const [from, to, value] of intervals) {
+      // GraphHopper 11 renvoie les valeurs d'énumération en minuscules (« footway ») : on normalise
+      if (idx >= from && idx < to) return typeof value === 'string' ? value.toUpperCase() : value;
+    }
     return null;
   };
 }
@@ -107,7 +110,7 @@ export function analyzePath(path, ctx) {
 
   // --- Altitude --------------------------------------------------------------
   const structureRanges = (det.road_environment || [])
-    .filter(([, , v]) => v === 'BRIDGE' || v === 'TUNNEL')
+    .filter(([, , v]) => ['BRIDGE', 'TUNNEL'].includes(String(v).toUpperCase()))
     .map(([from, to]) => [cum[from], cum[to]]);
 
   let rawSeries, elevationSource;
@@ -174,7 +177,8 @@ export function analyzePath(path, ctx) {
   }
 
   const w = ctx.weights;
-  const avgSpeedMs = path.distance / Math.max(1, path.time / 1000);
+  // Trajet très court (départ ≈ arrivée) : évite une division par zéro
+  const avgSpeedMs = path.distance > 0 && path.time > 0 ? path.distance / (path.time / 1000) : 5;
   const shares = { cycle: 0, unpaved: 0, cobbles: 0, unknownSurface: 0, uncertain: 0, works: 0 };
   const byRoadClass = {};
   const worksHits = new Map();

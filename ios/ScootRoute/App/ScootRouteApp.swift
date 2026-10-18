@@ -12,13 +12,22 @@ struct ScootRouteApp: App {
                 .environment(model)
                 .tint(Theme.route)
                 .onAppear { model.location.start() }
-                .task { await model.loadServerMeta() }
+                .task {
+                    await ServerLink.refresh()   // adresse du serveur à jour après un redémarrage du PC
+                    await model.loadServerMeta()
+                }
                 .onOpenURL { url in
                     // scootroute://go?q=<adresse ou coordonnées>  ou lien Apple Plans / Google Maps
                     Task { await model.importText(url.absoluteString, into: .customer) }
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await model.consumePendingImport() } }
+                    if phase == .active {
+                        model.reloadLastOffer()   // une offre a pu être analysée par le raccourci
+                        Task {
+                            await ServerLink.refresh()
+                            await model.consumePendingImport()
+                        }
+                    }
                 }
         }
         .modelContainer(for: TripRecord.self)
@@ -30,17 +39,23 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
 
     var body: some View {
-        TabView {
+        @Bindable var model = model
+        TabView(selection: $model.selectedTab) {
             HomeView()
                 .tabItem { Label("Trajet", systemImage: "scooter") }
+                .tag(AppModel.Tab.route)
+            OfferView()
+                .tabItem { Label("Offre", systemImage: "eurosign.circle") }
+                .tag(AppModel.Tab.offer)
             HistoryView()
                 .tabItem { Label("Historique", systemImage: "clock.arrow.circlepath") }
+                .tag(AppModel.Tab.history)
             ReportsView()
                 .tabItem { Label("Signaler", systemImage: "exclamationmark.bubble") }
-            ProfileView()
-                .tabItem { Label("Profil", systemImage: "person.crop.circle") }
+                .tag(AppModel.Tab.reports)
             SettingsView()
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
+                .tag(AppModel.Tab.settings)
         }
         .fullScreenCover(isPresented: Binding(
             get: { model.navigation != nil },

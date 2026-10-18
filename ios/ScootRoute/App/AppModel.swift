@@ -8,6 +8,16 @@ import Observation
 @Observable
 final class AppModel {
     enum Field: String, Identifiable { case origin, restaurant, customer; var id: String { rawValue } }
+    enum Tab: Hashable { case route, offer, history, reports, settings }
+
+    var selectedTab: Tab = .route
+
+    // MARK: Offres de course
+    var lastOffer: OfferAnalysis?
+    var isAnalyzingOffer = false
+    var offerSettings: OfferSettings {
+        didSet { LocalStore.save(offerSettings, key: "offerSettings") }
+    }
 
     let location = LocationService()
     let search = SearchService()
@@ -39,7 +49,74 @@ final class AppModel {
     init() {
         vehicle = LocalStore.load(VehicleProfile.self, key: "vehicle", default: VehicleProfile())
         settings = LocalStore.load(AppSettings.self, key: "settings", default: AppSettings())
+        offerSettings = LocalStore.load(OfferSettings.self, key: "offerSettings", default: OfferSettings())
+        lastOffer = LocalStore.load(OfferAnalysis?.self, key: OfferAnalysis.storeKey, default: nil)
         Fmt.unit = settings.unit
+    }
+
+    // MARK: Analyse d'offre
+
+    private var offerAnalyzer: OfferAnalyzer {
+        OfferAnalyzer(vehicle: vehicle, settings: settings, offerSettings: offerSettings)
+    }
+
+    func reloadLastOffer() {
+        lastOffer = LocalStore.load(OfferAnalysis?.self, key: OfferAnalysis.storeKey, default: nil)
+        // Le raccourci a pu enregistrer un nouveau niveau de batterie
+        let stored = LocalStore.load(VehicleProfile.self, key: "vehicle", default: vehicle)
+        if stored != vehicle { vehicle = stored }
+    }
+
+    var batteryMessage: String?
+
+    /// Capture d'écran de l'app de la trottinette (Dualtron…) : on lit le niveau de batterie.
+    func readBatteryScreenshot(_ data: Data) async {
+        batteryMessage = nil
+        do {
+            let lines = try await OfferOCR.recognizeLines(in: data)
+            guard let reading = BatteryScreenParser.parse(lines: lines, nominalVoltage: vehicle.nominalVoltage),
+                  reading.effectivePercent != nil else {
+                batteryMessage = "Aucun pourcentage ni tension de batterie trouvé sur cette capture."
+                return
+            }
+            vehicle = OfferAnalyzer.apply(reading, to: vehicle)
+            batteryMessage = OfferAnalyzer.batterySummary(reading, vehicle: vehicle)
+        } catch {
+            batteryMessage = error.localizedDescription
+        }
+    }
+
+    func analyzeOffer(imageData: Data) async {
+        isAnalyzingOffer = true
+        defer { isAnalyzingOffer = false }
+        do {
+            let result = try await offerAnalyzer.analyze(imageData: imageData, origin: location.location?.coordinate)
+            lastOffer = result
+            LocalStore.save(result, key: OfferAnalysis.storeKey)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Recalcul après correction manuelle (prix, restaurant, client).
+    func reanalyzeOffer(_ parsed: ParsedOffer, keepPlaces: Bool) async {
+        isAnalyzingOffer = true
+        defer { isAnalyzingOffer = false }
+        let result = await offerAnalyzer.analyze(
+            parsed: parsed, origin: location.location?.coordinate,
+            pickup: keepPlaces ? lastOffer?.pickup : nil, dropoff: keepPlaces ? lastOffer?.dropoff : nil)
+        lastOffer = result
+        LocalStore.save(result, key: OfferAnalysis.storeKey)
+    }
+
+    /// Offre acceptée : on prépare le trajet restaurant puis client.
+    func startOfferRoute() async {
+        guard let offer = lastOffer else { return }
+        resetDelivery()
+        restaurant = offer.pickup
+        customer = offer.dropoff
+        selectedTab = .route
+        await planRoute()
     }
 
     // MARK: Étapes

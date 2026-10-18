@@ -181,6 +181,8 @@ struct RouteRequest: Encodable {
     let maxSpeedKmh: Double?
     let profiles: [String]?
     let heading: Double?
+    /// Calcul rapide : un seul itinéraire, sans alternatives (analyse d'offre)
+    var quick: Bool? = nil
 }
 
 struct ReportRequest: Encodable {

@@ -7,6 +7,8 @@ import { createWorksService } from './works.js';
 import { createReportStore, REPORT_TYPES } from './reports.js';
 import { createPlanner } from './planner.js';
 import { PROFILE_PRESETS } from './profiles.js';
+import { createLinker, loadOrCreateCode, pairingPage } from './linker.js';
+import nodePath from 'node:path';
 
 export function loadConfig(env = process.env) {
   return {
@@ -19,6 +21,8 @@ export function loadConfig(env = process.env) {
     clientToken: env.CLIENT_TOKEN || '',
     coverageBbox: (env.COVERAGE_BBOX || '4.65,45.55,5.10,45.95').split(',').map(Number),
     rateLimitPerMin: Number(env.RATE_LIMIT_PER_MIN || 60),
+    tunnelMetricsUrl: env.TUNNEL_METRICS_URL || '',
+    ntfyBase: env.NTFY_BASE || 'https://ntfy.sh',
   };
 }
 
@@ -51,12 +55,13 @@ async function readJson(req, limit = 64 * 1024) {
 }
 
 function send(res, status, body) {
-  const data = JSON.stringify(body);
+  // Aucun NaN/Infinity ne doit partir vers l'app (JSON les transformerait en null)
+  const data = JSON.stringify(body, (_k, v) => (typeof v === 'number' && !Number.isFinite(v) ? 0 : v));
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(data);
 }
 
-export function createApp({ config, gh, elevation, works, reports, logger = console }) {
+export function createApp({ config, gh, elevation, works, reports, linker = null, logger = console }) {
   const planner = createPlanner({ gh, elevation, works, reports, coverageBbox: config.coverageBbox, logger });
   const allow = rateLimiter(config.rateLimitPerMin);
 
@@ -67,6 +72,16 @@ export function createApp({ config, gh, elevation, works, reports, logger = cons
     const path = url.pathname;
     try {
       if (path === '/health') return send(res, 200, { ok: true });
+
+      // Page du code de liaison : uniquement depuis le PC, jamais via le tunnel public
+      if (req.method === 'GET' && (path === '/liaison' || path === '/')) {
+        if (req.headers['cf-ray'] || req.headers['cf-connecting-ip']) {
+          return send(res, 404, { error: 'not_found' });
+        }
+        if (!linker) return send(res, 404, { error: 'not_found' });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(pairingPage(linker.code, linker.state.url));
+      }
 
       if (path.startsWith('/v1/')) {
         if (config.clientToken && req.headers['x-client-token'] !== config.clientToken) {
@@ -84,6 +99,7 @@ export function createApp({ config, gh, elevation, works, reports, logger = cons
           profiles: PROFILE_PRESETS,
           report_types: Object.fromEntries(Object.entries(REPORT_TYPES).map(([k, v]) => [k, v.label])),
           elevation_source: config.ignElevation ? 'IGN RGE ALTI (repli SRTM)' : 'SRTM',
+          public_url: linker?.state.url ?? null,
         });
       }
 
@@ -140,7 +156,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const works = createWorksService({ url: config.worksUrl });
   const reports = createReportStore(config.dbFile);
   works.start();
+  const linker = config.tunnelMetricsUrl
+    ? createLinker({ code: loadOrCreateCode(nodePath.dirname(config.dbFile)), metricsUrl: config.tunnelMetricsUrl, ntfyBase: config.ntfyBase })
+    : null;
+  linker?.start();
+  if (linker) console.log(`Code de liaison : ${linker.code}  (page : http://localhost:${config.port}/liaison)`);
   if (!config.adminToken) console.warn('⚠️  ADMIN_TOKEN non défini : la modération des signalements est désactivée');
-  http.createServer(createApp({ config, gh, elevation, works, reports }))
+  http.createServer(createApp({ config, gh, elevation, works, reports, linker }))
     .listen(config.port, () => console.log(`Scoot Route API sur :${config.port} → GraphHopper ${config.ghUrl}`));
 }

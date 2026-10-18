@@ -37,6 +37,7 @@ enum APIError: LocalizedError {
     case offline
     case server(code: String, message: String)
     case invalidResponse
+    case unreadable(String)
 
     var errorDescription: String? {
         switch self {
@@ -52,6 +53,8 @@ enum APIError: LocalizedError {
             }
         case .invalidResponse:
             return "Réponse du serveur illisible."
+        case let .unreadable(detail):
+            return "Réponse du serveur illisible (\(detail)). Envoyez ce message au support."
         }
     }
 }
@@ -83,11 +86,12 @@ final class RoutingAPI {
     }
 
     func planRoutes(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D, weights: RouteWeights,
-                    maxSpeedKmh: Double, profiles: [String]? = nil, heading: Double? = nil) async throws -> RoutePlanResponse {
+                    maxSpeedKmh: Double, profiles: [String]? = nil, heading: Double? = nil,
+                    quick: Bool? = nil) async throws -> RoutePlanResponse {
         let body = RouteRequest(
             from: .init(lat: from.latitude, lon: from.longitude),
             to: .init(lat: to.latitude, lon: to.longitude),
-            weights: weights, maxSpeedKmh: maxSpeedKmh, profiles: profiles, heading: heading)
+            weights: weights, maxSpeedKmh: maxSpeedKmh, profiles: profiles, heading: heading, quick: quick)
         return try await send(path: "v1/routes", method: "POST", body: body)
     }
 
@@ -106,7 +110,35 @@ final class RoutingAPI {
         try await send(path: "v1/meta", method: "GET", body: Optional<String>.none)
     }
 
+    private static func path(_ keys: [CodingKey]) -> String {
+        keys.map { key in key.intValue.map { index in "[\(index)]" } ?? key.stringValue }.joined(separator: ".")
+    }
+
+    /// Envoie la requête ; si le serveur semble avoir changé d'adresse (PC redémarré, nouveau tunnel),
+    /// on récupère la nouvelle adresse par la liaison automatique puis on réessaie une fois.
     private func send<B: Encodable, R: Decodable>(path: String, method: String, body: B?) async throws -> R {
+        do {
+            return try await sendOnce(path: path, method: method, body: body)
+        } catch let error as APIError where Self.suggestsMovedServer(error) {
+            if case .updated = await ServerLink.refresh() {
+                return try await sendOnce(path: path, method: method, body: body)
+            }
+            throw error
+        }
+    }
+
+    private static func suggestsMovedServer(_ error: APIError) -> Bool {
+        switch error {
+        case let .server(code, _):
+            return ["engine_unreachable", "http_404", "http_502", "http_503", "http_530"].contains(code)
+        case let .unreadable(detail):
+            return detail.hasPrefix("format non JSON")
+        default:
+            return false
+        }
+    }
+
+    private func sendOnce<B: Encodable, R: Decodable>(path: String, method: String, body: B?) async throws -> R {
         guard let url = URL(string: path, relativeTo: AppConfig.apiBaseURL.appendingPathComponent("")) else {
             throw APIError.invalidResponse
         }
@@ -134,8 +166,15 @@ final class RoutingAPI {
         }
         do {
             return try decoder.decode(R.self, from: data)
+        } catch let DecodingError.keyNotFound(key, ctx) {
+            throw APIError.unreadable("champ manquant \(Self.path(ctx.codingPath + [key]))")
+        } catch let DecodingError.valueNotFound(_, ctx) {
+            throw APIError.unreadable("valeur vide \(Self.path(ctx.codingPath))")
+        } catch let DecodingError.typeMismatch(_, ctx) {
+            throw APIError.unreadable("type inattendu \(Self.path(ctx.codingPath))")
         } catch {
-            throw APIError.invalidResponse
+            let start = String(data: data.prefix(60), encoding: .utf8) ?? ""
+            throw APIError.unreadable("format non JSON : \(start)")
         }
     }
 }

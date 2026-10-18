@@ -79,3 +79,17 @@ test('overlapRatio : identique = 1, parallèle à 300 m = 0', () => {
   assert.equal(overlapRatio(a, a), 1);
   assert.equal(overlapRatio(a, b), 0);
 });
+
+test('analyzePath : valeurs GraphHopper en minuscules et trajet de longueur nulle', () => {
+  const p = fakePath({ details: {
+    road_class: [[0, 40, 'footway']], surface: [[0, 40, 'fine_gravel']], bike_network: [[0, 40, 'missing']],
+  } });
+  const r = analyzePath(p, ctx());
+  assert.equal(r.shares.cycle_infra_pct, 0);
+  assert.equal(r.shares.unpaved_pct, 100);
+  assert.equal(r.segments[0].road_type, 'Voie piétonne');
+  const zero = fakePath({ n: 2, stepDeg: 0 });
+  zero.distance = 0; zero.time = 0;
+  const z = analyzePath(zero, ctx());
+  assert.ok(Number.isFinite(z.cost) && z.segments.every((s) => Number.isFinite(s.duration_s)));
+});

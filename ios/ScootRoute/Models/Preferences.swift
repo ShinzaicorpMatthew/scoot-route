@@ -49,6 +49,12 @@ struct VehicleProfile: Codable, Equatable {
     /// Facteur appris à partir des trajets réels (consommation réelle / estimée).
     var calibrationFactor: Double = 1.0
     var calibrationSamples: Int = 0
+    /// Tension nominale (V) et capacité (Ah) : capacité en Wh = V × Ah
+    var nominalVoltage: Double? = nil
+    var capacityAh: Double? = nil
+    /// Dernière lecture du niveau de batterie sur l'app de la trottinette
+    var lastBatteryReadingDate: Date? = nil
+    var lastBatteryVoltage: Double? = nil
 
     static let defaultBatteryWh = 450.0
 

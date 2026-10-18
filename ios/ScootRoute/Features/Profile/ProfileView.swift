@@ -1,17 +1,38 @@
 import SwiftUI
+import PhotosUI
 
 /// Profil trottinette et livreur (stocké uniquement sur l'iPhone).
 struct ProfileView: View {
     @Environment(AppModel.self) private var model
+    @State private var batteryShot: PhotosPickerItem?
+    @State private var readingBattery = false
 
     var body: some View {
         @Bindable var model = model
         NavigationStack {
             Form {
-                Section("Trottinette") {
-                    TextField("Modèle (ex. Xiaomi 4 Pro)", text: $model.vehicle.modelName)
+                Section {
+                    TextField("Modèle (ex. Dualtron Mini)", text: $model.vehicle.modelName)
                     HStack {
-                        Text("Capacité batterie")
+                        Text("Tension nominale")
+                        Spacer()
+                        TextField("ex. 52", value: $model.vehicle.nominalVoltage, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        Text("V").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Capacité")
+                        Spacer()
+                        TextField("ex. 13", value: $model.vehicle.capacityAh, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        Text("Ah").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Énergie batterie")
                         Spacer()
                         TextField("inconnue", value: $model.vehicle.batteryWh, format: .number)
                             .keyboardType(.numberPad)
@@ -23,6 +44,41 @@ struct ProfileView: View {
                         ForEach(RidingMode.allCases) { Text($0.label).tag($0) }
                     }
                     Toggle("Freinage régénératif", isOn: $model.vehicle.hasRegenerativeBraking)
+                } header: {
+                    Text("Trottinette")
+                } footer: {
+                    Text("Tension (V) et capacité (Ah) figurent sur l'étiquette de la batterie ou la fiche technique de votre modèle : l'énergie en Wh est calculée automatiquement (V × Ah).")
+                }
+                .onChange(of: model.vehicle.nominalVoltage) { _, _ in updateEnergy() }
+                .onChange(of: model.vehicle.capacityAh) { _, _ in updateEnergy() }
+
+                Section {
+                    PhotosPicker(selection: $batteryShot, matching: .screenshots) {
+                        Label("Lire ma batterie sur une capture de l'app de la trottinette", systemImage: "battery.75percent")
+                    }
+                    if readingBattery { HStack { ProgressView(); Text("Lecture…") } }
+                    if let message = model.batteryMessage {
+                        Text(message).font(.footnote)
+                    }
+                    if let date = model.vehicle.lastBatteryReadingDate {
+                        Text("Dernière lecture : \(date.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Niveau de batterie depuis l'app Dualtron")
+                } footer: {
+                    Text("Ouvrez l'app de votre trottinette, faites une capture de l'écran qui affiche la batterie (pourcentage ou tension), puis choisissez-la ici. Plus rapide : tapotez le dos de l'iPhone sur cet écran, le même raccourci que pour les offres enregistre le niveau.")
+                }
+                .onChange(of: batteryShot) { _, item in
+                    guard let item else { return }
+                    Task {
+                        readingBattery = true
+                        if let data = try? await item.loadTransferable(type: Data.self) {
+                            await model.readBatteryScreenshot(data)
+                        }
+                        readingBattery = false
+                        batteryShot = nil
+                    }
                 }
 
                 Section {
@@ -77,6 +133,12 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profil")
+        }
+    }
+
+    private func updateEnergy() {
+        if let v = model.vehicle.nominalVoltage, let ah = model.vehicle.capacityAh, v > 0, ah > 0 {
+            model.vehicle.batteryWh = (v * ah).rounded()
         }
     }
 }

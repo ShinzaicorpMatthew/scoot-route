@@ -195,3 +195,101 @@ final class FormatterTests: XCTestCase {
         XCTAssertEqual(Fmt.duration(3900), "1 h 05")
     }
 }
+
+final class OfferParserTests: XCTestCase {
+    func testTypicalOfferScreen() {
+        let lines = ["16:42", "Livraison", "6,85 €", "Total estimé (inclus les frais)", "22 min (4,1 km) au total",
+                     "Burger King", "12 Rue de la République, 69002 Lyon", "Livraison",
+                     "Rue Duguesclin, 69006 Lyon", "Accepter"]
+        let o = OfferParser.parse(lines: lines)
+        XCTAssertEqual(o.priceEur, 6.85)
+        XCTAssertEqual(o.announcedDistanceKm, 4.1)
+        XCTAssertEqual(o.announcedDurationMin, 22)
+        XCTAssertEqual(o.pickupText, "Burger King, 12 Rue de la République, 69002 Lyon")
+        XCTAssertEqual(o.dropoffText, "Rue Duguesclin, 69006 Lyon")
+    }
+
+    func testBonusIsNotTakenAsPrice() {
+        let o = OfferParser.parse(lines: ["€7.20", "+1,00 € inclus", "18 min", "3,2 km", "Pitaya Thaï Street Food", "Cours Lafayette"])
+        XCTAssertEqual(o.priceEur, 7.2)
+        XCTAssertEqual(o.pickupText, "Pitaya Thaï Street Food")
+        XCTAssertEqual(o.dropoffText, "Cours Lafayette")
+    }
+
+    func testNoPrice() {
+        XCTAssertFalse(OfferParser.parse(lines: ["Bonjour", "Aucune offre"]).isUsable)
+    }
+}
+
+final class ProfitabilityTests: XCTestCase {
+    private let vehicle = VehicleProfile(batteryWh: 474, batteryPercent: 80, cruiseSpeedKmh: 20)
+
+    func testGoodOffer() {
+        // 8 € pour ~19 min (11 min de route + 8 min d'arrêts) et 3,5 km
+        let legs = [OfferLeg(distanceM: 1000, durationS: 180, ascentM: 0, descentM: 0),
+                    OfferLeg(distanceM: 2500, durationS: 480, ascentM: 5, descentM: 5)]
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 8, legs: legs, announcedKm: nil, announcedMin: nil,
+                                                settings: OfferSettings(), vehicle: vehicle)!
+        XCTAssertEqual(e.verdict, .good)
+        XCTAssertEqual(e.totalMinutes, 19, accuracy: 0.01)
+        XCTAssertEqual(e.eurPerKm, 8 / 3.5, accuracy: 0.01)
+        XCTAssertEqual(e.source, .scooterRoute)
+    }
+
+    func testBadOffer() {
+        let legs = [OfferLeg(distanceM: 6000, durationS: 1300, ascentM: 90, descentM: 10)]
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 4, legs: legs, announcedKm: nil, announcedMin: nil,
+                                                settings: OfferSettings(), vehicle: vehicle)!
+        XCTAssertEqual(e.verdict, .bad)
+        XCTAssertTrue(e.reasons.contains { $0.contains("Montées") })
+    }
+
+    func testFallbackOnAnnouncedValues() {
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: 4, announcedMin: 20,
+                                                settings: OfferSettings(), vehicle: vehicle)!
+        XCTAssertEqual(e.source, .announced)
+        XCTAssertEqual(e.totalMinutes, 23, accuracy: 0.01) // 20 min + 3 min de remise
+        XCTAssertNil(ProfitabilityEvaluator.evaluate(priceEur: 6, legs: nil, announcedKm: nil, announcedMin: nil,
+                                                     settings: OfferSettings(), vehicle: vehicle))
+    }
+
+    func testEmptyBatteryMakesOfferBad() {
+        let low = VehicleProfile(batteryWh: 300, batteryPercent: 4)
+        let legs = [OfferLeg(distanceM: 3000, durationS: 600, ascentM: 0, descentM: 0)]
+        let e = ProfitabilityEvaluator.evaluate(priceEur: 15, legs: legs, announcedKm: nil, announcedMin: nil,
+                                                settings: OfferSettings(), vehicle: low)!
+        XCTAssertEqual(e.verdict, .bad)
+    }
+}
+
+final class BatteryScreenParserTests: XCTestCase {
+    func testPercentShown() {
+        let r = BatteryScreenParser.parse(lines: ["DUALTRON", "Batterie", "78 %", "54.3 V", "0 km/h"], nominalVoltage: 52)
+        XCTAssertEqual(r?.effectivePercent, 78)
+        XCTAssertEqual(r?.voltage, 54.3)
+        XCTAssertEqual(r?.estimatedFromVoltage, false)
+    }
+
+    func testPercentFromVoltage() {
+        // 14 éléments (52 V) à 3,8 V par élément ≈ 50 %
+        let r = BatteryScreenParser.parse(lines: ["Voltage", "53,2V"], nominalVoltage: 52)
+        XCTAssertEqual(r?.effectivePercent, 50)
+        XCTAssertEqual(r?.estimatedFromVoltage, true)
+        XCTAssertEqual(BatteryScreenParser.percent(fromVoltage: 67.2, nominal: 60), 100)
+        XCTAssertEqual(BatteryScreenParser.cellCount(nominal: 60), 16)
+    }
+
+    func testOfferScreenIsNotABatteryScreen() {
+        XCTAssertNil(BatteryScreenParser.parse(lines: ["6,85 €", "22 min", "Burger King"], nominalVoltage: nil))
+    }
+}
+
+final class ServerLinkTests: XCTestCase {
+    /// Valeurs calculées par le serveur Node (test de compatibilité entre les deux côtés).
+    func testMatchesServerImplementation() {
+        XCTAssertEqual(ServerLink.normalize("abcd-efgh jklm"), "ABCDEFGHJKLM")
+        XCTAssertEqual(ServerLink.topic(for: "ABCD-EFGH-JKLM"), "scootroute-3f63d25fcb898ecfd6c2e232")
+        XCTAssertEqual(ServerLink.signature(code: "ABCD-EFGH-JKLM", url: "https://new-url.trycloudflare.com", ts: 1760000000),
+                       "ced60a549e2683acad5657912e43ab14a15d970f8347fb6641e97b26339c26c1")
+    }
+}

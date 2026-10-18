@@ -126,3 +126,16 @@ test('jeton client exigé quand configuré', async () => {
     assert.equal((await fetch(`${api.url}/v1/meta`, { headers: { 'x-client-token': 'tok' } })).status, 200);
   } finally { api.server.close(); gh.server.close(); }
 });
+
+test('mode quick (analyse d\'offre) : un profil, pas d\'alternatives', async () => {
+  const gh = await startFakeGraphHopper();
+  const api = await startApi(gh.url);
+  try {
+    const res = await post(`${api.url}/v1/routes`, {
+      from: { lat: 45.7578, lon: 4.832 }, to: { lat: 45.7578, lon: 4.85 }, profiles: ['balanced'], quick: true,
+    });
+    const json = await res.json();
+    assert.equal(json.routes.length, 1);
+    assert.equal(gh.calls.filter((c) => c.body?.algorithm).length, 0);
+  } finally { api.server.close(); gh.server.close(); }
+});

@@ -76,6 +76,13 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             self.location = last
             self.lastFixDate = Date()
+            // Mémorisée pour l'analyse d'offre par raccourci (app en arrière-plan)
+            let d = UserDefaults.standard
+            if Date().timeIntervalSince1970 - d.double(forKey: "lastLocTime") > 30 {
+                d.set(last.coordinate.latitude, forKey: "lastLat")
+                d.set(last.coordinate.longitude, forKey: "lastLon")
+                d.set(Date().timeIntervalSince1970, forKey: "lastLocTime")
+            }
             if self.isNavigating { self.onNavigationUpdate?(last) }
         }
     }
