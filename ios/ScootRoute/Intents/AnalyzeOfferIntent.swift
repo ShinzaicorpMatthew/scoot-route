@@ -11,7 +11,8 @@ struct AnalyzeOfferIntent: AppIntent {
         "Lit une capture d'écran : une offre (Uber Eats…) → rentable ou non en trottinette ; l'écran batterie de l'app de la trottinette → niveau enregistré.")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "Capture d'écran", supportedContentTypes: [.image])
+    // (supportedContentTypes exige iOS 18 ; l'app vise iOS 17 : toute image est acceptée)
+    @Parameter(title: "Capture d'écran")
     var screenshot: IntentFile
 
     static var parameterSummary: some ParameterSummary {
